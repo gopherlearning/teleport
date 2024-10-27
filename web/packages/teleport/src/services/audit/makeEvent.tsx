@@ -18,6 +18,7 @@
 
 import { formatDistanceStrict } from 'date-fns';
 import { pluralize } from 'shared/utils/text';
+import * as Icons from 'design/Icon';
 
 import { Event, RawEvent, Formatters, eventCodes, RawEvents } from './types';
 
@@ -725,6 +726,11 @@ export const formatters: Formatters = {
     type: 'user.login',
     desc: 'Local Login',
     format: ({ user }) => `Local user [${user}] successfully logged in`,
+    render: ({ user }) => (
+      <>
+        Local user <User user={user} /> successfully logged in
+      </>
+    ),
   },
   [eventCodes.USER_LOCAL_LOGINFAILURE]: {
     type: 'user.login',
@@ -783,11 +789,28 @@ export const formatters: Formatters = {
       }
       return `Passwordless user requested an MFA authentication challenge`;
     },
+    render: ({ user }) => {
+      if (user) {
+        return (
+          <>
+            <User user={user} /> requested an MFA authentication challenge
+          </>
+        );
+      } else {
+        return <>Passwordless user requested an MFA authentication challenge</>;
+      }
+    },
   },
   [eventCodes.VALIDATE_MFA_AUTH_RESPONSE]: {
     type: 'mfa_auth_challenge.validate',
     desc: 'MFA Authentication Success',
     format: ({ user }) => `User [${user}] completed MFA authentication`,
+    render: ({ user }) => (
+      <>
+        <Icons.User {...iconProps} size="small" />
+        <b>{user}</b> completed MFA authentication
+      </>
+    ),
   },
   [eventCodes.VALIDATE_MFA_AUTH_RESPONSEFAILURE]: {
     type: 'mfa_auth_challenge.validate',
@@ -1441,6 +1464,21 @@ export const formatters: Formatters = {
       }
       return `Certificate of type [${cert_type}] issued for [${user}]`;
     },
+    render: ({ cert_type, identity: { user } }) => {
+      if (cert_type === 'user') {
+        return (
+          <>
+            User certificate issued for
+            <User user={user} />
+          </>
+        );
+      }
+      return (
+        <>
+          Certificate of type {cert_type} issued for <User user={user} />
+        </>
+      );
+    },
   },
   [eventCodes.UPGRADE_WINDOW_UPDATED]: {
     type: 'upgradewindow.update',
@@ -1979,6 +2017,20 @@ export const formatters: Formatters = {
   },
 };
 
+const iconProps = {
+  m: 1,
+  verticalAlign: 'middle',
+};
+
+function User({ user }) {
+  return (
+    <>
+      <Icons.User {...iconProps} size="small" />
+      <b>{user}</b>
+    </>
+  );
+}
+
 const unknownFormatter = {
   desc: 'Unknown',
   format: () => 'Unknown',
@@ -1995,6 +2047,7 @@ export default function makeEvent(json: any): Event {
     user: json.user,
     time: new Date(json.time),
     raw: json,
+    render: formatter.render,
   };
 }
 
