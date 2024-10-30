@@ -21,16 +21,19 @@ package app
 import (
 	"context"
 	"crypto/tls"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
 	"path"
 	"slices"
+	"strings"
 
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport"
+	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/wrappers"
 	"github.com/gravitational/teleport/lib"
@@ -97,6 +100,14 @@ func newTransport(ctx context.Context, c *transportConfig) (*transport, error) {
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
+
+	// Add a timeout to the dialer so failures to establish network connections
+	// don't cause requests to hang forever.
+	d := net.Dialer{
+		Timeout: apidefaults.DefaultDialTimeout,
+	}
+	tr.DialContext = d.DialContext
+
 	tr.TLSClientConfig, err = configureTLS(c)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -143,15 +154,39 @@ func (t *transport) RoundTrip(r *http.Request) (*http.Response, error) {
 		return nil, trace.Wrap(err)
 	}
 
-	// Forward the request to the target application and emit an audit event.
+	// Add a timeout to the request, so slow servers don't cause requests to
+	// hang forever.
+	timeout, cancel := context.WithTimeout(r.Context(), apidefaults.DefaultIOTimeout)
+	defer cancel()
+	r = r.WithContext(timeout)
+
+	// Forward the request to the target application.
+	//
+	// If a network error occured when connecting to the target application, log
+	// and return a helpful error message to the user and Teleport
+	// administrator.
 	resp, err := t.tr.RoundTrip(r)
+	if message, ok := utils.CanExplainNetworkError(err); ok {
+		t.log.DebugContext(r.Context(), "Request failed with a network error.",
+			"raw_error", err, "human_error", message)
+
+		code := trace.ErrorToCode(err)
+		return &http.Response{
+			StatusCode: code,
+			Status:     http.StatusText(code),
+			Proto:      r.Proto,
+			ProtoMajor: r.ProtoMajor,
+			ProtoMinor: r.ProtoMinor,
+			Body:       io.NopCloser(strings.NewReader(charWrap(message))),
+			TLS:        r.TLS,
+		}, nil
+	}
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	status := uint32(resp.StatusCode)
 
 	// Emit the event to the audit log.
-	if err := sessCtx.Audit.OnRequest(t.closeContext, sessCtx, r, status, nil /*aws endpoint*/); err != nil {
+	if err := sessCtx.Audit.OnRequest(t.closeContext, sessCtx, r, uint32(resp.StatusCode), nil /*aws endpoint*/); err != nil {
 		return nil, trace.Wrap(err)
 	}
 
@@ -292,4 +327,21 @@ func host(addr string) string {
 		return addr
 	}
 	return host
+}
+
+// charWrap wraps a line to about 80 characters to make it easier to read.
+func charWrap(message string) string {
+	var n int
+	var sb strings.Builder
+	for _, word := range strings.Fields(message) {
+		sb.WriteString(word)
+		sb.WriteString(" ")
+
+		n += len(word) + 1
+		if n > 80 {
+			sb.WriteString("\n")
+			n = 0
+		}
+	}
+	return sb.String()
 }
