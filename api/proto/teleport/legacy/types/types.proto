@@ -7654,7 +7654,7 @@ message InstallerParams {
   // Valid values:
   // 0: uses eice for EC2 matchers which use an integration and script for all the other methods
   // 1: uses script mode
-  // 2: uses eice mode
+  // 2: deprecated: use 1/script mode
   InstallParamEnrollMode EnrollMode = 8 [(gogoproto.jsontag) = "enroll_mode,omitempty"];
 }
 
@@ -7666,6 +7666,7 @@ enum InstallParamEnrollMode {
   INSTALL_PARAM_ENROLL_MODE_SCRIPT = 1;
   // INSTALL_PARAM_ENROLL_MODE_EICE uses EC2 Instance Connect Endpoint to access the node and DiscoveryService handles the heartbeat.
   // Only available for AWS EC2 instances.
+  // Deprecated: use INSTALL_PARAM_ENROLL_MODE_SCRIPT
   INSTALL_PARAM_ENROLL_MODE_EICE = 2;
 }
 

@@ -166,6 +166,7 @@ const (
 	// This Key is valid for 60 seconds.
 	//
 	// It uses the private key created above to SSH into the host.
+	// Deprecated: use SSM installation mode.
 	SubKindOpenSSHEICENode = "openssh-ec2-ice"
 
 	// KindUnifiedResource is a meta Kind that is used for the unified resource search present on

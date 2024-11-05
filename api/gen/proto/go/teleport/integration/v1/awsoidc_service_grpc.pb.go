@@ -57,10 +57,12 @@ type AWSOIDCServiceClient interface {
 	// An optional NextToken that can be used to fetch the next page.
 	// It uses the following API:
 	// https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstanceConnectEndpoints.html
+	// Deprecated: EICE enrollment is no longer supported. Please use SSM enrollment mode.
 	ListEICE(ctx context.Context, in *ListEICERequest, opts ...grpc.CallOption) (*ListEICEResponse, error)
 	// CreateEICE creates multiple EC2 Instance Connect Endpoint using the provided Subnets and Security Group IDs.
 	// It uses the following API:
 	// https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_CreateInstanceConnectEndpoint.html
+	// Deprecated: EICE enrollment is no longer supported. Please use SSM enrollment mode.
 	CreateEICE(ctx context.Context, in *CreateEICERequest, opts ...grpc.CallOption) (*CreateEICEResponse, error)
 	// ListDatabases calls the following AWS API:
 	// https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_DescribeDBClusters.html
@@ -239,10 +241,12 @@ type AWSOIDCServiceServer interface {
 	// An optional NextToken that can be used to fetch the next page.
 	// It uses the following API:
 	// https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstanceConnectEndpoints.html
+	// Deprecated: EICE enrollment is no longer supported. Please use SSM enrollment mode.
 	ListEICE(context.Context, *ListEICERequest) (*ListEICEResponse, error)
 	// CreateEICE creates multiple EC2 Instance Connect Endpoint using the provided Subnets and Security Group IDs.
 	// It uses the following API:
 	// https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_CreateInstanceConnectEndpoint.html
+	// Deprecated: EICE enrollment is no longer supported. Please use SSM enrollment mode.
 	CreateEICE(context.Context, *CreateEICERequest) (*CreateEICEResponse, error)
 	// ListDatabases calls the following AWS API:
 	// https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_DescribeDBClusters.html

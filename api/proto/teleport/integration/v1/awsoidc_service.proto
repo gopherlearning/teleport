@@ -26,11 +26,13 @@ service AWSOIDCService {
   // An optional NextToken that can be used to fetch the next page.
   // It uses the following API:
   // https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstanceConnectEndpoints.html
+  // Deprecated: EICE enrollment is no longer supported. Please use SSM enrollment mode.
   rpc ListEICE(ListEICERequest) returns (ListEICEResponse);
 
   // CreateEICE creates multiple EC2 Instance Connect Endpoint using the provided Subnets and Security Group IDs.
   // It uses the following API:
   // https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_CreateInstanceConnectEndpoint.html
+  // Deprecated: EICE enrollment is no longer supported. Please use SSM enrollment mode.
   rpc CreateEICE(CreateEICERequest) returns (CreateEICEResponse);
 
   // ListDatabases calls the following AWS API:
