@@ -29,8 +29,6 @@ import (
 	"github.com/gravitational/teleport/lib/linux"
 )
 
-const yumRepoEndpoint = "https://yum.releases.teleport.dev/"
-
 var (
 	// yumDistroMap maps distro IDs that teleport doesn't officially support but are known to work.
 	// The key is the not-officially-supported distro ID and the value is the most similar distro.
@@ -80,8 +78,14 @@ func NewYUM(cfg *YUMConfig) (*YUM, error) {
 	return &YUM{YUMConfig: cfg}, nil
 }
 
+type yumRepoMetadata struct {
+	endpoint string
+}
+
 // AddTeleportRepository adds the Teleport repository to the current system.
-func (pm *YUM) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OSRelease, repoChannel string) error {
+func (pm *YUM) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OSRelease, repoChannel string, developmentRepo bool) error {
+	repoMetadata := teleportYUMRepo(developmentRepo)
+
 	distroID := cmp.Or(yumDistroMap[linuxInfo.ID], linuxInfo.ID)
 
 	// Teleport repo only targets the major version of the target distros.
@@ -96,7 +100,9 @@ func (pm *YUM) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OSRel
 
 	// Repo location looks like this:
 	// https://yum.releases.teleport.dev/$ID/$VERSION_ID/Teleport/%{_arch}/{{ .RepoChannel }}/teleport.repo
-	repoLocation := fmt.Sprintf("%s%s/%s/Teleport/%%{_arch}/%s/teleport.repo", yumRepoEndpoint, distroID, versionID, repoChannel)
+	// Or
+	// https://yum.releases.development.teleport.dev/$ID/$VERSION_ID/Teleport/%{_arch}/{{ .RepoChannel }}/teleport.repo
+	repoLocation := fmt.Sprintf("%s%s/%s/Teleport/%%{_arch}/%s/teleport.repo", repoMetadata.endpoint, distroID, versionID, repoChannel)
 	pm.logger.InfoContext(ctx, "Building rpm metadata for Teleport repo", "command", "rpm --eval "+repoLocation)
 	rpmEvalTeleportRepoCMD := exec.CommandContext(ctx, pm.bins.Rpm, "--eval", repoLocation)
 	rpmEvalTeleportRepoCMDOutput, err := rpmEvalTeleportRepoCMD.CombinedOutput()

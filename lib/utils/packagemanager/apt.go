@@ -30,20 +30,20 @@ import (
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport"
-	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/linux"
 	"github.com/gravitational/teleport/lib/utils"
 )
 
 const (
-	productionAPTPublicKeyEndpoint = "https://apt.releases.teleport.dev/gpg"
-	aptRepoEndpoint                = "https://apt.releases.teleport.dev/"
-
-	aptTeleportSourceListFileRelative = "/etc/apt/sources.list.d/teleport.list"
-	aptTeleportPublicKeyFileRelative  = "/usr/share/keyrings/teleport-archive-keyring.asc"
-
 	aptFilePermsRepository = 0o644
 )
+
+type aptRepoMetadata struct {
+	endpoint       string
+	pubKeyEndpoint string
+	sourceListFile string
+	pubKeyFile     string
+}
 
 // APT is a wrapper for apt package manager.
 // This package manager is used in Debian/Ubuntu and distros based on this distribution.
@@ -53,26 +53,20 @@ type APT struct {
 	// legacy indicates that the old method of adding repos must be used.
 	// This is used in Xenial (16.04) and Trusty (14.04) Ubuntu releases.
 	legacy bool
-
-	httpClient *http.Client
 }
 
 // APTConfig contains the configurable fields for setting up the APT package manager.
 type APTConfig struct {
-	logger               *slog.Logger
-	aptPublicKeyEndpoint string
-	fsRootPrefix         string
-	bins                 BinariesLocation
+	logger       *slog.Logger
+	fsRootPrefix string
+	bins         BinariesLocation
+	httpGet      func(url string) (resp *http.Response, err error)
 }
 
 // CheckAndSetDefaults checks and sets default config values.
 func (p *APTConfig) CheckAndSetDefaults() error {
 	if p == nil {
 		return trace.BadParameter("config is required")
-	}
-
-	if p.aptPublicKeyEndpoint == "" {
-		p.aptPublicKeyEndpoint = productionAPTPublicKeyEndpoint
 	}
 
 	p.bins.CheckAndSetDefaults()
@@ -85,6 +79,10 @@ func (p *APTConfig) CheckAndSetDefaults() error {
 		p.logger = slog.Default()
 	}
 
+	if p.httpGet == nil {
+		return trace.BadParameter("httpGet is required")
+	}
+
 	return nil
 }
 
@@ -93,11 +91,7 @@ func NewAPT(cfg *APTConfig) (*APT, error) {
 	if err := cfg.CheckAndSetDefaults(); err != nil {
 		return nil, trace.Wrap(err)
 	}
-	httpClient, err := defaults.HTTPClient()
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-	return &APT{APTConfig: cfg, httpClient: httpClient}, nil
+	return &APT{APTConfig: cfg}, nil
 }
 
 // NewAPTLegacy creates a new APT for legacy ubuntu versions (Xenial and Trusty).
@@ -112,10 +106,13 @@ func NewAPTLegacy(cfg *APTConfig) (*APT, error) {
 }
 
 // AddTeleportRepository adds the Teleport repository to the current system.
-func (pm *APT) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OSRelease, repoChannel string) error {
-	pm.logger.InfoContext(ctx, "Fetching Teleport repository key", "endpoint", pm.aptPublicKeyEndpoint)
+func (pm *APT) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OSRelease, repoChannel string, developmentRepo bool) error {
+	repoMetadata := teleportAPTRepo(developmentRepo)
 
-	resp, err := pm.httpClient.Get(pm.aptPublicKeyEndpoint)
+	aptRepoEndpoint := repoMetadata.endpoint
+	pm.logger.InfoContext(ctx, "Fetching Teleport repository key", "endpoint", repoMetadata.pubKeyEndpoint)
+
+	resp, err := pm.httpGet(repoMetadata.pubKeyEndpoint)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -125,10 +122,12 @@ func (pm *APT) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OSRel
 		return trace.Wrap(err)
 	}
 
-	aptTeleportSourceListFile := filepath.Join(pm.fsRootPrefix, aptTeleportSourceListFileRelative)
-	aptTeleportPublicKeyFile := filepath.Join(pm.fsRootPrefix, aptTeleportPublicKeyFileRelative)
+	aptTeleportSourceListFile := filepath.Join(pm.fsRootPrefix, repoMetadata.sourceListFile)
+	aptTeleportPublicKeyFile := filepath.Join(pm.fsRootPrefix, repoMetadata.pubKeyFile)
 	// Format for teleport repo entry should look like this:
 	// deb [signed-by=/usr/share/keyrings/teleport-archive-keyring.asc]  https://apt.releases.teleport.dev/${ID?} ${VERSION_CODENAME?} $RepoChannel"
+	// Or (for non-production releases like alpha.X)
+	// deb [signed-by=/usr/share/keyrings/teleport-development-archive-keyring.asc]  https://apt.releases.development.teleport.dev/${ID?} ${VERSION_CODENAME?} $RepoChannel"
 	teleportRepoMetadata := fmt.Sprintf("deb [signed-by=%s] %s%s %s %s", aptTeleportPublicKeyFile, aptRepoEndpoint, linuxInfo.ID, linuxInfo.VersionCodename, repoChannel)
 
 	switch {

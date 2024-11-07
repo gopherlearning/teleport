@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -35,6 +36,7 @@ import (
 
 	"github.com/google/safetext/shsprintf"
 	"github.com/gravitational/trace"
+	"golang.org/x/mod/semver"
 
 	"github.com/gravitational/teleport/api"
 	"github.com/gravitational/teleport/api/types"
@@ -87,10 +89,6 @@ type AutoDiscoverNodeInstallerConfig struct {
 	// TokenName is the token name to be used by the instance to join the cluster.
 	TokenName string
 
-	// aptPublicKeyEndpoint contains the URL for the APT public key.
-	// Defaults to: https://apt.releases.teleport.dev/gpg
-	aptPublicKeyEndpoint string
-
 	// fsRootPrefix is the prefix to use when reading operating system information and when installing teleport.
 	// Used for testing.
 	fsRootPrefix string
@@ -102,6 +100,14 @@ type AutoDiscoverNodeInstallerConfig struct {
 	// imdsProviders contains the Cloud Instance Metadata providers.
 	// Used for testing.
 	imdsProviders []func(ctx context.Context) (imds.Client, error)
+
+	// apiVersion is the current API version.
+	// Used for testing.
+	apiVersion string
+
+	// httpGet is used to fetch the public key for APT repos.
+	// Used for testing.
+	httpGet func(url string) (resp *http.Response, err error)
 }
 
 func (c *AutoDiscoverNodeInstallerConfig) checkAndSetDefaults() error {
@@ -135,6 +141,18 @@ func (c *AutoDiscoverNodeInstallerConfig) checkAndSetDefaults() error {
 
 	if c.AutoUpgrades && c.TeleportPackage == types.PackageNameEntFIPS {
 		return trace.BadParameter("auto upgrades are not supported in FIPS environments")
+	}
+
+	if c.apiVersion == "" {
+		c.apiVersion = api.Version
+	}
+
+	if c.httpGet == nil {
+		httpClient, err := defaults.HTTPClient()
+		if err != nil {
+			return trace.Wrap(err)
+		}
+		c.httpGet = httpClient.Get
 	}
 
 	if c.autoUpgradesChannelURL == "" {
@@ -401,7 +419,7 @@ func (ani *AutoDiscoverNodeInstaller) installTeleportFromRepo(ctx context.Contex
 		"version_id", linuxInfo.VersionID,
 	)
 
-	packageManager, err := packagemanager.PackageManagerForSystem(linuxInfo, ani.fsRootPrefix, ani.binariesLocation, ani.aptPublicKeyEndpoint)
+	packageManager, err := packagemanager.PackageManagerForSystem(linuxInfo, ani.fsRootPrefix, ani.binariesLocation, ani.httpGet)
 	if err != nil {
 		return trace.Wrap(err)
 	}
@@ -423,7 +441,9 @@ func (ani *AutoDiscoverNodeInstaller) installTeleportFromRepo(ctx context.Contex
 	}
 	packagesToInstall = append(packagesToInstall, packagemanager.PackageVersion{Name: ani.TeleportPackage, Version: targetVersion})
 
-	if err := packageManager.AddTeleportRepository(ctx, linuxInfo, ani.RepositoryChannel); err != nil {
+	useDevelopmentRepo := ani.versionRequiresDevelopmentRepo(targetVersion)
+
+	if err := packageManager.AddTeleportRepository(ctx, linuxInfo, ani.RepositoryChannel, useDevelopmentRepo); err != nil {
 		return trace.BadParameter("failed to add teleport repository to system: %v", err)
 	}
 	if err := packageManager.InstallPackages(ctx, packagesToInstall); err != nil {
@@ -431,6 +451,31 @@ func (ani *AutoDiscoverNodeInstaller) installTeleportFromRepo(ctx context.Contex
 	}
 
 	return nil
+}
+
+// versionRequiresDevelopmentRepo returns whether the version to install is available in the development repository.
+// In case of error parsing the version, it will always default to use a production repository.
+func (ani *AutoDiscoverNodeInstaller) versionRequiresDevelopmentRepo(targetVersion string) bool {
+	version := targetVersion
+	if version == "" {
+		version = ani.apiVersion
+	}
+	// Add v prefix because semver requires it.
+	version = "v" + version
+
+	if !semver.IsValid(version) {
+		return false
+	}
+
+	if semver.Prerelease(version) != "" {
+		return true
+	}
+
+	if semver.Build(version) != "" {
+		return true
+	}
+
+	return false
 }
 
 func (ani *AutoDiscoverNodeInstaller) getIMDSClient(ctx context.Context) (imds.Client, error) {

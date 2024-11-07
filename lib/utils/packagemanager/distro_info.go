@@ -18,6 +18,7 @@ package packagemanager
 
 import (
 	"context"
+	"net/http"
 	"slices"
 
 	"github.com/gravitational/trace"
@@ -26,7 +27,7 @@ import (
 )
 
 // PackageManagerForSystem returns the PackageManager for the current detected linux distro.
-func PackageManagerForSystem(osRelease *linux.OSRelease, fsRootPrefix string, binariesLocation BinariesLocation, aptPubKeyEndpoint string) (PackageManager, error) {
+func PackageManagerForSystem(osRelease *linux.OSRelease, fsRootPrefix string, binariesLocation BinariesLocation, httpGet func(string) (*http.Response, error)) (PackageManager, error) {
 	aptWellKnownIDs := []string{"debian", "ubuntu"}
 	legacyAPT := []string{"xenial", "trusty"}
 
@@ -38,9 +39,9 @@ func PackageManagerForSystem(osRelease *linux.OSRelease, fsRootPrefix string, bi
 	case slices.Contains(aptWellKnownIDs, osRelease.ID):
 		if slices.Contains(legacyAPT, osRelease.VersionCodename) {
 			pm, err := NewAPTLegacy(&APTConfig{
-				fsRootPrefix:         fsRootPrefix,
-				bins:                 binariesLocation,
-				aptPublicKeyEndpoint: aptPubKeyEndpoint,
+				fsRootPrefix: fsRootPrefix,
+				bins:         binariesLocation,
+				httpGet:      httpGet,
 			})
 			if err != nil {
 				return nil, trace.Wrap(err)
@@ -49,9 +50,9 @@ func PackageManagerForSystem(osRelease *linux.OSRelease, fsRootPrefix string, bi
 		}
 
 		pm, err := NewAPT(&APTConfig{
-			fsRootPrefix:         fsRootPrefix,
-			bins:                 binariesLocation,
-			aptPublicKeyEndpoint: aptPubKeyEndpoint,
+			fsRootPrefix: fsRootPrefix,
+			bins:         binariesLocation,
+			httpGet:      httpGet,
 		})
 		if err != nil {
 			return nil, trace.Wrap(err)
@@ -86,7 +87,11 @@ func PackageManagerForSystem(osRelease *linux.OSRelease, fsRootPrefix string, bi
 // PackageManager describes the required methods to implement a package manager.
 type PackageManager interface {
 	// AddTeleportRepository adds the Teleport repository using a specific channel.
-	AddTeleportRepository(ctx context.Context, ldi *linux.OSRelease, repoChannel string) error
+	// developmentRepo indicates whether to use the production or development artifacts.
+	// Example for APT:
+	// - production repo is at https://apt.releases.teleport.dev/
+	// - development repo is at https://apt.releases.development.teleport.dev/ and it contains dev and pre-release builds (eg alpha versions).
+	AddTeleportRepository(ctx context.Context, ldi *linux.OSRelease, repoChannel string, developmentRepo bool) error
 	// InstallPackages installs a list of packages.
 	// If a PackageVersion does not contain the version, then it will install the latest available.
 	InstallPackages(context.Context, []PackageVersion) error

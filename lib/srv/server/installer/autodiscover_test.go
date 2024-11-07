@@ -20,6 +20,8 @@ package installer
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -101,11 +103,6 @@ func (m *mockGCPInstanceGetter) GetInstanceTags(ctx context.Context, req *gcp.In
 
 func TestAutoDiscoverNode(t *testing.T) {
 	ctx := context.Background()
-
-	mockRepoKeys := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("my-public-key"))
-	}))
 
 	mockBins, binariesLocation, releaseMockedBinsFN := buildMockBins(t)
 	t.Cleanup(func() {
@@ -190,10 +187,13 @@ func TestAutoDiscoverNode(t *testing.T) {
 						TokenName:         "my-token",
 						AzureClientID:     "azure-client-id",
 
-						fsRootPrefix:         testTempDir,
-						imdsProviders:        mockIMDSProviders,
-						binariesLocation:     binariesLocation,
-						aptPublicKeyEndpoint: mockRepoKeys.URL,
+						fsRootPrefix:     testTempDir,
+						imdsProviders:    mockIMDSProviders,
+						binariesLocation: binariesLocation,
+						apiVersion:       "17.0.0",
+						httpGet: func(url string) (resp *http.Response, err error) {
+							return &http.Response{Body: io.NopCloser(strings.NewReader("my public key"))}, nil
+						},
 					}
 
 					teleportInstaller, err := NewAutoDiscoverNodeInstaller(installerConfig)
@@ -223,7 +223,7 @@ func TestAutoDiscoverNode(t *testing.T) {
 							c.Exit(0)
 						})
 					case "sles":
-						mockBins["rpm"].Expect("--import", packagemanager.ZypperPublicKeyEndpoint)
+						mockBins["rpm"].Expect("--import", "https://zypper.releases.teleport.dev/gpg")
 						mockBins["rpm"].Expect("--eval", bintest.MatchAny())
 						mockBins["zypper"].Expect("--non-interactive", "addrepo", bintest.MatchAny())
 						mockBins["zypper"].Expect("--gpg-auto-import-keys", "refresh")
@@ -290,8 +290,11 @@ func TestAutoDiscoverNode(t *testing.T) {
 			fsRootPrefix:           testTempDir,
 			imdsProviders:          mockIMDSProviders,
 			binariesLocation:       binariesLocation,
-			aptPublicKeyEndpoint:   mockRepoKeys.URL,
+			apiVersion:             "17.0.0",
 			autoUpgradesChannelURL: proxyServer.URL,
+			httpGet: func(url string) (resp *http.Response, err error) {
+				return &http.Response{Body: io.NopCloser(strings.NewReader("my public key"))}, nil
+			},
 		}
 
 		teleportInstaller, err := NewAutoDiscoverNodeInstaller(installerConfig)
@@ -337,6 +340,93 @@ func TestAutoDiscoverNode(t *testing.T) {
 		require.FileExists(t, testTempDir+"/etc/teleport.yaml.discover")
 	})
 
+	t.Run("with a pre-release verion, it uses development repositories", func(t *testing.T) {
+		distroConfig := wellKnownOS["ubuntu"]["24.04"]
+
+		proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			// We only expect calls to the automatic upgrade default channel's version endpoint.
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("v17.0.0-alpha.4\n"))
+		}))
+		t.Cleanup(func() {
+			proxyServer.Close()
+		})
+		proxyPublicAddr := proxyServer.Listener.Addr().String()
+
+		testTempDir := t.TempDir()
+
+		setupDirsForTest(t, testTempDir, distroConfig)
+
+		installerConfig := &AutoDiscoverNodeInstallerConfig{
+			RepositoryChannel: "stable/v17",
+			AutoUpgrades:      true,
+			ProxyPublicAddr:   proxyPublicAddr,
+			TeleportPackage:   "teleport-ent",
+			TokenName:         "my-token",
+			AzureClientID:     "azure-client-id",
+
+			fsRootPrefix:           testTempDir,
+			imdsProviders:          mockIMDSProviders,
+			binariesLocation:       binariesLocation,
+			apiVersion:             "v17.0.0-alpha.4",
+			autoUpgradesChannelURL: proxyServer.URL,
+			httpGet: func(url string) (resp *http.Response, err error) {
+				return &http.Response{Body: io.NopCloser(strings.NewReader("my public key"))}, nil
+			},
+		}
+
+		teleportInstaller, err := NewAutoDiscoverNodeInstaller(installerConfig)
+		require.NoError(t, err)
+
+		// One of the first things the install command does is to check if teleport is already installed.
+		// If so, it stops the installation with success.
+		// Given that we are mocking the binary, it means it already exists and as such, the installation will stop.
+		// To prevent that, we must rename the file, call `<pakageManager> install teleport` and rename it back.
+		teleportInitialPath := mockBins["teleport"].Path
+		teleportHiddenPath := teleportInitialPath + "-hidden"
+		require.NoError(t, os.Rename(teleportInitialPath, teleportHiddenPath))
+
+		mockBins["apt-get"].Expect("update")
+		mockBins["apt-get"].Expect("install", "-y", "teleport-ent-updater=17.0.0-alpha.4", "teleport-ent=17.0.0-alpha.4").AndCallFunc(func(c *bintest.Call) {
+			assert.NoError(t, os.Rename(teleportHiddenPath, teleportInitialPath))
+			c.Exit(0)
+		})
+
+		mockBins["teleport"].Expect("node",
+			"configure",
+			"--output=file://"+testTempDir+"/etc/teleport.yaml.new",
+			"--proxy="+proxyPublicAddr,
+			"--join-method=azure",
+			"--token=my-token",
+			"--labels=teleport.internal/region=eastus,teleport.internal/resource-group=TestGroup,teleport.internal/subscription-id=5187AF11-3581-4AB6-A654-59405CD40C44,teleport.internal/vm-id=ED7DAC09-6E73-447F-BD18-AF4D1196C1E4",
+			"--azure-client-id=azure-client-id",
+		).AndCallFunc(func(c *bintest.Call) {
+			// create a teleport.yaml configuration file
+			require.NoError(t, os.WriteFile(testTempDir+"/etc/teleport.yaml.new", []byte("teleport.yaml configuration bytes"), 0o644))
+			c.Exit(0)
+		})
+
+		mockBins["systemctl"].Expect("enable", "teleport")
+		mockBins["systemctl"].Expect("restart", "teleport")
+
+		require.NoError(t, teleportInstaller.Install(ctx))
+
+		for binName, mockBin := range mockBins {
+			require.True(t, mockBin.Check(t), "mismatch between expected invocations and actual calls for %q", binName)
+		}
+		require.FileExists(t, testTempDir+"/etc/teleport.yaml")
+		require.FileExists(t, testTempDir+"/etc/teleport.yaml.discover")
+
+		teleportDevelopmentSourceListContents, err := os.ReadFile(testTempDir + "/etc/apt/sources.list.d/development.teleport.list")
+		require.NoError(t, err)
+
+		expectedFileContents := fmt.Sprintf(
+			"deb [signed-by=%s/usr/share/keyrings/development.teleport-archive-keyring.asc] https://apt.releases.development.teleport.dev/ubuntu noble stable/v17",
+			testTempDir,
+		)
+		require.Equal(t, expectedFileContents, string(teleportDevelopmentSourceListContents))
+	})
+
 	t.Run("gcp adds a label with the project id", func(t *testing.T) {
 		distroConfig := wellKnownOS["ubuntu"]["24.04"]
 
@@ -372,10 +462,10 @@ func TestAutoDiscoverNode(t *testing.T) {
 			TeleportPackage:   "teleport",
 			TokenName:         "my-token",
 
-			fsRootPrefix:         testTempDir,
-			imdsProviders:        mockIMDSProviders,
-			binariesLocation:     binariesLocation,
-			aptPublicKeyEndpoint: mockRepoKeys.URL,
+			fsRootPrefix:     testTempDir,
+			imdsProviders:    mockIMDSProviders,
+			binariesLocation: binariesLocation,
+			apiVersion:       "17.0.0",
 		}
 
 		teleportInstaller, err := NewAutoDiscoverNodeInstaller(installerConfig)
@@ -444,8 +534,8 @@ func TestAutoDiscoverNode(t *testing.T) {
 					return &imds.DisabledClient{}, nil
 				},
 			},
-			binariesLocation:     binariesLocation,
-			aptPublicKeyEndpoint: mockRepoKeys.URL,
+			binariesLocation: binariesLocation,
+			apiVersion:       "17.0.0",
 		}
 
 		teleportInstaller, err := NewAutoDiscoverNodeInstaller(installerConfig)
@@ -476,10 +566,10 @@ func TestAutoDiscoverNode(t *testing.T) {
 			TokenName:         "my-token",
 			AzureClientID:     "azure-client-id",
 
-			fsRootPrefix:         testTempDir,
-			imdsProviders:        mockIMDSProviders,
-			binariesLocation:     binariesLocation,
-			aptPublicKeyEndpoint: mockRepoKeys.URL,
+			fsRootPrefix:     testTempDir,
+			imdsProviders:    mockIMDSProviders,
+			binariesLocation: binariesLocation,
+			apiVersion:       "17.0.0",
 		}
 
 		teleportInstaller, err := NewAutoDiscoverNodeInstaller(installerConfig)
@@ -542,10 +632,10 @@ func TestAutoDiscoverNode(t *testing.T) {
 			TokenName:         "my-token",
 			AzureClientID:     "azure-client-id",
 
-			fsRootPrefix:         testTempDir,
-			imdsProviders:        mockIMDSProviders,
-			binariesLocation:     binariesLocation,
-			aptPublicKeyEndpoint: mockRepoKeys.URL,
+			fsRootPrefix:     testTempDir,
+			imdsProviders:    mockIMDSProviders,
+			binariesLocation: binariesLocation,
+			apiVersion:       "17.0.0",
 		}
 
 		teleportInstaller, err := NewAutoDiscoverNodeInstaller(installerConfig)
@@ -604,10 +694,10 @@ func TestAutoDiscoverNode(t *testing.T) {
 			TokenName:         "my-token",
 			AzureClientID:     "azure-client-id",
 
-			fsRootPrefix:         testTempDir,
-			imdsProviders:        mockIMDSProviders,
-			binariesLocation:     binariesLocation,
-			aptPublicKeyEndpoint: mockRepoKeys.URL,
+			fsRootPrefix:     testTempDir,
+			imdsProviders:    mockIMDSProviders,
+			binariesLocation: binariesLocation,
+			apiVersion:       "17.0.0",
 		}
 
 		teleportInstaller, err := NewAutoDiscoverNodeInstaller(installerConfig)
@@ -666,10 +756,10 @@ func TestAutoDiscoverNode(t *testing.T) {
 			TokenName:         "my-token",
 			AzureClientID:     "azure-client-id",
 
-			fsRootPrefix:         testTempDir,
-			imdsProviders:        mockIMDSProviders,
-			binariesLocation:     binariesLocation,
-			aptPublicKeyEndpoint: mockRepoKeys.URL,
+			fsRootPrefix:     testTempDir,
+			imdsProviders:    mockIMDSProviders,
+			binariesLocation: binariesLocation,
+			apiVersion:       "17.0.0",
 		}
 
 		teleportInstaller, err := NewAutoDiscoverNodeInstaller(installerConfig)

@@ -28,12 +28,10 @@ import (
 	"github.com/gravitational/teleport/lib/linux"
 )
 
-const (
-	// ZypperPublicKeyEndpoint is the endpoint that contains the Teleport's GPG production Key.
-	ZypperPublicKeyEndpoint = "https://zypper.releases.teleport.dev/gpg"
-	// zypperRepoEndpoint is the repo endpoint for Zypper based distros.
-	zypperRepoEndpoint = "https://zypper.releases.teleport.dev/"
-)
+type zypperRepoMetadata struct {
+	endpoint       string
+	pubKeyEndpoint string
+}
 
 // Zypper is a wrapper for apt package manager.
 // This package manager is used in OpenSUSE/SLES and distros based on this distribution.
@@ -76,7 +74,9 @@ func NewZypper(cfg *ZypperConfig) (*Zypper, error) {
 }
 
 // AddTeleportRepository adds the Teleport repository to the current system.
-func (pm *Zypper) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OSRelease, repoChannel string) error {
+func (pm *Zypper) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OSRelease, repoChannel string, developmentRepo bool) error {
+	repoMetadata := teleportZypperRepo(developmentRepo)
+
 	// Teleport repo only targets the major version of the target distros.
 	versionID := strings.Split(linuxInfo.VersionID, ".")[0]
 
@@ -84,8 +84,8 @@ func (pm *Zypper) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OS
 		versionID = "15" // tumbleweed uses dated VERSION_IDs like 20230702
 	}
 
-	pm.logger.InfoContext(ctx, "Trusting Teleport repository key", "command", "rpm --import "+ZypperPublicKeyEndpoint)
-	importPublicKeyCMD := exec.CommandContext(ctx, pm.bins.Rpm, "--import", ZypperPublicKeyEndpoint)
+	pm.logger.InfoContext(ctx, "Trusting Teleport repository key", "command", "rpm --import "+repoMetadata.pubKeyEndpoint)
+	importPublicKeyCMD := exec.CommandContext(ctx, pm.bins.Rpm, "--import", repoMetadata.pubKeyEndpoint)
 	importPublicKeyCMDOutput, err := importPublicKeyCMD.CombinedOutput()
 	if err != nil {
 		return trace.Wrap(err, string(importPublicKeyCMDOutput))
@@ -93,7 +93,7 @@ func (pm *Zypper) AddTeleportRepository(ctx context.Context, linuxInfo *linux.OS
 
 	// Repo location looks like this:
 	// https://yum.releases.teleport.dev/$ID/$VERSION_ID/Teleport/%{_arch}/{{ .RepoChannel }}/teleport.repo
-	repoLocation := fmt.Sprintf("%s%s/%s/Teleport/%%{_arch}/%s/teleport.repo", zypperRepoEndpoint, linuxInfo.ID, versionID, repoChannel)
+	repoLocation := fmt.Sprintf("%s%s/%s/Teleport/%%{_arch}/%s/teleport.repo", repoMetadata.endpoint, linuxInfo.ID, versionID, repoChannel)
 	pm.logger.InfoContext(ctx, "Building rpm metadata for Teleport repo", "command", "rpm --eval "+repoLocation)
 	rpmEvalTeleportRepoCMD := exec.CommandContext(ctx, pm.bins.Rpm, "--eval", repoLocation)
 	rpmEvalTeleportRepoCMDOutput, err := rpmEvalTeleportRepoCMD.CombinedOutput()
