@@ -485,6 +485,8 @@ func (u *HostUserManagement) UpsertUser(name string, ui services.HostUsersInfo) 
 	return closer, nil
 }
 
+const userLeaseDuration = time.Second * 20
+
 func (u *HostUserManagement) doWithUserLock(f func(types.SemaphoreLease) error) error {
 	lock, err := services.AcquireSemaphoreWithRetry(u.ctx,
 		services.AcquireSemaphoreWithRetryConfig{
@@ -493,7 +495,7 @@ func (u *HostUserManagement) doWithUserLock(f func(types.SemaphoreLease) error) 
 				SemaphoreKind: types.SemaphoreKindHostUserModification,
 				SemaphoreName: "host_user_modification",
 				MaxLeases:     1,
-				Expires:       time.Now().Add(time.Second * 20),
+				Expires:       time.Now().Add(userLeaseDuration),
 			},
 			Retry: retryutils.LinearConfig{
 				Step: time.Second * 5,
@@ -556,13 +558,14 @@ func (u *HostUserManagement) DeleteAllUsers() error {
 		return trace.Wrap(err)
 	}
 	var errs []error
-	for _, name := range users {
-		lt, err := u.storage.GetHostUserInteractionTime(u.ctx, name)
-		if err != nil {
-			u.log.DebugContext(u.ctx, "Failed to find user login time", "host_username", name, "error", err)
-			continue
-		}
-		u.doWithUserLock(func(l types.SemaphoreLease) error {
+	u.doWithUserLock(func(l types.SemaphoreLease) error {
+		for _, name := range users {
+			lt, err := u.storage.GetHostUserInteractionTime(u.ctx, name)
+			if err != nil {
+				u.log.DebugContext(u.ctx, "Failed to find user login time", "host_username", name, "error", err)
+				continue
+			}
+
 			if time.Since(lt) < u.userGrace {
 				// small grace period in order to avoid deleting users
 				// in-between them starting their SSH session and
@@ -571,11 +574,14 @@ func (u *HostUserManagement) DeleteAllUsers() error {
 			}
 			errs = append(errs, u.DeleteUser(name, teleportGroup.Gid))
 
-			l.Expires = time.Now().Add(time.Second * 10)
-			u.storage.KeepAliveSemaphoreLease(u.ctx, l)
-			return nil
-		})
-	}
+			if time.Until(l.Expires) < userLeaseDuration/2 {
+				l.Expires = time.Now().Add(userLeaseDuration / 2)
+				u.storage.KeepAliveSemaphoreLease(u.ctx, l)
+			}
+		}
+
+		return nil
+	})
 	return trace.NewAggregate(errs...)
 }
 
