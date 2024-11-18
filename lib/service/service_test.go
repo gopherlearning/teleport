@@ -1857,7 +1857,6 @@ func TestAgentRolloutController(t *testing.T) {
 
 	// Test setup: create a Teleport Auth config
 	fakeClock := clockwork.NewFakeClock()
-	ctx := context.Background()
 
 	var err error
 	dataDir := t.TempDir()
