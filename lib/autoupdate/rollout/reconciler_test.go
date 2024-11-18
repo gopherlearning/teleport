@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package rolloutcontroller
+package rollout
 
 import (
 	"context"
@@ -559,7 +559,7 @@ func TestReconciler_Reconcile(t *testing.T) {
 		}
 
 		// Test execution: run the reconciliation loop
-		require.ErrorContains(t, reconciler.reconcile(cancelableCtx), "canceled")
+		require.ErrorIs(t, reconciler.reconcile(cancelableCtx), context.Canceled)
 
 		// Test validation: check that all the expected calls were received
 		client.checkIfEmpty(t)

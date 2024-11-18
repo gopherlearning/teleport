@@ -98,7 +98,7 @@ import (
 	"github.com/gravitational/teleport/lib/auth/storage"
 	"github.com/gravitational/teleport/lib/authz"
 	"github.com/gravitational/teleport/lib/automaticupgrades"
-	"github.com/gravitational/teleport/lib/autoupdate/rolloutcontroller"
+	"github.com/gravitational/teleport/lib/autoupdate/rollout"
 	"github.com/gravitational/teleport/lib/backend"
 	"github.com/gravitational/teleport/lib/backend/dynamo"
 	_ "github.com/gravitational/teleport/lib/backend/etcdbk"
@@ -2431,7 +2431,7 @@ func (process *TeleportProcess) initAuthService() error {
 		return trace.Wrap(spiffeFedSyncer.Run(process.GracefulExitContext()), "running SPIFFEFederation Syncer")
 	})
 
-	agentRolloutController := rolloutcontroller.New(authServer, logger, process.Clock)
+	agentRolloutController := rollout.NewController(authServer, logger, process.Clock)
 	process.RegisterFunc("auth.autoupdate_agent_rollout_controller", func() error {
 		return trace.Wrap(agentRolloutController.Run(process.GracefulExitContext()), "running autoupdate_agent_rollout controller")
 	})

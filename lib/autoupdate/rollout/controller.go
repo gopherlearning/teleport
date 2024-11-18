@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-package rolloutcontroller
+package rollout
 
 import (
 	"context"
@@ -43,8 +43,8 @@ type Controller struct {
 	log        *slog.Logger
 }
 
-// New creates a new Controller for the autoupdate_agent_rollout kind.
-func New(client Client, log *slog.Logger, clock clockwork.Clock) *Controller {
+// NewController creates a new Controller for the autoupdate_agent_rollout kind.
+func NewController(client Client, log *slog.Logger, clock clockwork.Clock) *Controller {
 	return &Controller{
 		clock: clock,
 		log:   log,
@@ -55,7 +55,7 @@ func New(client Client, log *slog.Logger, clock clockwork.Clock) *Controller {
 	}
 }
 
-// Run the autoupdate_agent_rollout controller. This function returns only when its context is cancelled.
+// Run the autoupdate_agent_rollout controller. This function returns only when its context is canceled.
 func (c *Controller) Run(ctx context.Context) error {
 	config := interval.Config{
 		Duration:      reconcilerPeriod,
@@ -64,6 +64,7 @@ func (c *Controller) Run(ctx context.Context) error {
 		Clock:         c.clock,
 	}
 	ticker := interval.New(config)
+	defer ticker.Stop()
 
 	for {
 		select {

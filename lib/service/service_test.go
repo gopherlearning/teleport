@@ -1867,9 +1867,11 @@ func TestAgentRolloutController(t *testing.T) {
 	cfg.DataDir = dataDir
 	cfg.SetAuthServerAddress(utils.NetAddr{AddrNetwork: "tcp", Addr: "127.0.0.1:0"})
 	cfg.Auth.Enabled = true
+	cfg.Proxy.Enabled = false
+	cfg.SSH.Enabled = false
+	cfg.DebugService.Enabled = false
 	cfg.Auth.StorageConfig.Params["path"] = dataDir
 	cfg.Auth.ListenAddr = utils.NetAddr{AddrNetwork: "tcp", Addr: "127.0.0.1:0"}
-	cfg.SSH.Enabled = false
 	cfg.CircuitBreakerConfig = breaker.NoopBreakerConfig()
 
 	process, err := NewTeleport(cfg)
@@ -1877,7 +1879,22 @@ func TestAgentRolloutController(t *testing.T) {
 
 	// Test setup: start the Teleport auth and wait for it to beocme ready
 	require.NoError(t, process.Start())
-	t.Cleanup(func() { require.NoError(t, process.Close()) })
+
+	// Test setup: wait for every service to start
+	ctx, cancel := context.WithTimeout(process.ExitContext(), 30*time.Second)
+	defer cancel()
+	for _, eventName := range []string{AuthTLSReady, InstanceReady} {
+		_, err := process.WaitForEvent(ctx, eventName)
+		require.NoError(t, err)
+	}
+
+	// Test cleanup: close the Teleport process and wait for every service to exist before returning.
+	// This ensures that a service will not make the test fail by writing a file to the temporary directory while it's
+	// being removed.
+	t.Cleanup(func() {
+		require.NoError(t, process.Close())
+		require.NoError(t, process.Wait())
+	})
 
 	// Test execution: create the autoupdate_version resource
 	authServer := process.GetAuthServer()
