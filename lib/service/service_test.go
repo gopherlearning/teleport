@@ -1858,7 +1858,6 @@ func TestAgentRolloutController(t *testing.T) {
 	// Test setup: create a Teleport Auth config
 	fakeClock := clockwork.NewFakeClock()
 
-	var err error
 	dataDir := t.TempDir()
 
 	cfg := servicecfg.MakeDefaultConfig()
@@ -1909,7 +1908,7 @@ func TestAgentRolloutController(t *testing.T) {
 	version, err = authServer.CreateAutoUpdateVersion(ctx, version)
 	require.NoError(t, err)
 
-	// Test execution: advance clock to trigger a reonciliation
+	// Test execution: advance clock to trigger a reconciliation
 	fakeClock.Advance(2 * time.Minute)
 
 	// Test validation: check that a new autoupdate_agent_rollout config was created
