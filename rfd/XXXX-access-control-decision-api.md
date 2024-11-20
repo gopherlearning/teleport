@@ -12,9 +12,8 @@ state: draft
 ## What
 
 This proposal describes a means of reworking teleport access-control decisions to remove the need to perform
-access-control decisions on peripheral agents and to bring teleport's internals more inline with common
+access-control decisions on peripheral agents and to bring teleport's internals more in line with common
 access-control best practices.
-
 
 ## Why
 
@@ -49,7 +48,6 @@ to teleport access-control decision making. Most major proposed changes to telep
 (e.g. scoped rbac) have never even reached the point of a working prototype. This isn't only because of the lack of
 a clear abstraction boundary, but that is a very significant contributing factor.
 
-
 ## Details
 
 ### Key Terminology
@@ -66,18 +64,16 @@ the action should be allowed, and any necessary information needed to correctly 
 - Permit: A single data structure encoding all necessary information for a PEP to correctly enforce a conditional/
 parameterized allow decision.
 
-
 ### Overview
 
 We will rework teleport's access-control decision making to have a well-defined boundary between Policy Decision Point
 and Policy Enforcement Point. The goal of this rework will be to abstract as much complexity as possible into the PDP,
 while attempting to minimize the need to actually change how or where enforcement is done today. The PDP/PEP boundary
-will be representable as a GRPC API, but where possible we will continue to ensure that teleport does not make unnecessary
+will be representable as a gRPC API, but where possible we will continue to ensure that teleport does not make unnecessary
 network round trips.
 
 We will also establish a set of conventions intended to make the transition to using the new system as easy as possible,
 and to ensure that it is as difficult as possible to accidentally misuse it either by misunderstanding or oversight.
-
 
 ### API
 
@@ -95,7 +91,7 @@ and types should be handled:
 - All "allow" decisions will be structured as conditional allows, pending the application of limits/parameters. All allow decisions
 will be communicated by a type of the form `<Action>Permit`, which will encode all limits/parameters to be applied by the PEP. Much of
 the agent-side teleport logic that previously would have worked with some combination of certificate identity and role set will instead
-take the appropriate permit structure as input. Permits will *always* be passed by pointer, not reference, as a precaution against zero
+take the appropriate permit structure as input. Permits will *always* be passed by pointer, not value, as a precaution against zero
 value bugs resulting in unintended access.
 
 - Methods will conventionally take the form `rpc Authorize<Action>(<Action>Description) returns (<Action>Permit)`. For example,
@@ -111,10 +107,10 @@ those APIs where specifying individual resources/subjects or sets of resources/s
 
 Here is a truncated example of the PDP API for server access:
 
-```grpc
+```protobuf
 service AuthorizationService {
-  
-  rpc AuthroizeServerAccess(ServerAccessDescription) returns (ServerAccessPermit);
+
+  rpc AuthorizeServerAccess(ServerAccessDescription) returns (ServerAccessPermit);
 
   // ...
 }
@@ -122,11 +118,11 @@ service AuthorizationService {
 message ServerAccessDescription {
   ActionMetadata metadata = 1;
 
-  Subject user = 1;
+  Subject user = 2;
 
-  Resource server = 2;
- 
-  string login = 3;
+  Resource server = 3;
+
+  string login = 4;
 }
 
 message ServerAccessPermit {
@@ -145,7 +141,7 @@ message ServerAccessPermit {
   bool disconnect_expired_cert = 7;
 
   repeated string bpf = 8;
-  
+
   bool x11_forwarding = 9;
 
   int64 max_connections = 10;
@@ -158,11 +154,9 @@ With the above API, most server access enforcement logic can be reworked to resp
 `AccessChecker.EnhancedRecordingSet()` becomes `permit.Bpf`, `AccessChecker.GetHostSudoerts(server)` becomes
 `permit.HostSudoers`, etc.
 
-
 ### Phased Implementation
 
 The switch to PDP will be accomplished in two distinct phases. An "refactor" phase, and a "relocate" phase.
-
 
 #### Refactor Phase
 
@@ -172,7 +166,7 @@ made at the control plane, the implementation of the PDP logic will be polymorph
 depending on where it is running.
 
 On the control plane, the PDP will have access to the entire set of teleport users and roles. This variant will be able
-to serve as the backing of the GRPC API, and make internal decisions as if it were a remote PDP. This PDP will be a shared
+to serve as the backing of the gRPC API, and make internal decisions as if it were a remote PDP. This PDP will be a shared
 service initialized once at process startup.
 
 On agents, a local ephemeral PDP will be able to be initialized with a fake user store providing only the identity of the
@@ -181,12 +175,12 @@ only serve requests related to the user for which it was initialized (much like 
 
 Common PDP logic will be shared between the two variants, meaning that so long as we need to support the agent-local PDP,
 the control-plane PDP won't be able to make use of any state that cannot be derived from a combination of local agent cache
-and user certificate identity.  The APIs of both local and remote PDP will conform to the same interface so that any logic
+and user certificate identity. The APIs of both local and remote PDP will conform to the same interface so that any logic
 relying upon the PDP can abstract over local and remote implementations.
 
 The intent of this work is to allow us to make the vast majority of necessary code changes in a totally backwards-compatible
 manner and to backport them to all active release branches. This will ensure that ongoing work related to policy enforcement
-doesn't need to reimplement the same logic for the old model when backporting.  Though its worth considering trying to land
+doesn't need to reimplement the same logic for the old model when backporting. Though its worth considering trying to land
 all major changes prior to a testplan so that we can get robust manual testing of all major features with the changes in
 place before backporting.
 
@@ -197,7 +191,6 @@ During this phase we will also implement tctl commands for directly invoking the
 plane. This will provide a powerful debugging and auditing tool for superusers and developers who want deeper insight into how
 teleport makes decisions.
 
-
 #### Relocate Phase
 
 The relocate phase will see us actually transition to all access-control decisions being made at the control plane. The method
@@ -206,9 +199,9 @@ itself, and allowed dials will have the Permit object forwarded to the agent as 
 agent will call-back into the control plane to get a decision.
 
 We intend to open a second follow-up RFD when we are closer to the relocate phase in order to explore it in more detail, but the
-highlighs are these:
+highlights are these:
 
-- Agent reverse tunnel protocols will need to be updated to allow a trusted and replay-resistent permit message to be sent from proxy to
+- Agent reverse tunnel protocols will need to be updated to allow a trusted and replay-resistant permit message to be sent from proxy to
 agent as part of an incoming dial.
 
 - The mechanism by which trusted cluster dials are performed will need to be reworked s.t. all routing decisions are made at
@@ -223,20 +216,19 @@ so that we can fallback to local decisions when talking to outdated control plan
 certificates. We may want to consider a mechanism for eliminating logins at the same time (e.g. by lazily provisioning certs containing
 only the target login at the proxy).
 
-
-#### Questions/Alternatives/Ongoing Research
+### Questions/Alternatives/Ongoing Research
 
 - We're still debating the merits of the naming scheme for the package/service. We've mostly narrowed it down to either a service
 name `AuthorizationService` with associated package name `authz`, or a service named `PolicyDecisionPointService` (or possibly `DecisionService`)
-with associated package name `pdp`. The former is more inline with existing teleport naming convetions, but risks confusion and
+with associated package name `pdp`. The former is more inline with existing teleport naming conventions, but risks confusion and
 reduces searchability since we already have many packages/services with very similar names. The latter is more inline with industry
-standard naming convetions/terminology and much more distinct, but risks being too verbose and/or being less intuitive to someone
+standard naming conventions/terminology and much more distinct, but risks being too verbose and/or being less intuitive to someone
 not familiar with the lingo.
 
-- We've gone back and forth a bit on wether to return bare permits s.t. the resulting client method returns `(*Permit, error)` or
+- We've gone back and forth a bit on whether to return bare permits s.t. the resulting client method returns `(*Permit, error)` or
 to use an enclosing response/decision message with a oneof for allow/deny cases. The former is more inline with how existing access
 control decisions are made and results in slightly cleaner code, but the latter may be useful if we ever decide to start doing more
-complex denial cases (e.g. for MFA flows or verbose denials for use by visualization tools).  We're currently leaning toward bare
+complex denial cases (e.g. for MFA flows or verbose denials for use by visualization tools). We're currently leaning toward bare
 permits since all the good arguments for enclosed responses are speculative at this point. One of the design goals of this system
 is to let us iterate faster, and that includes adding new methods with new conventions as the need arises.
 
