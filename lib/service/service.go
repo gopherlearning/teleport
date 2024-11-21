@@ -155,6 +155,7 @@ import (
 	"github.com/gravitational/teleport/lib/srv/db"
 	"github.com/gravitational/teleport/lib/srv/debug"
 	"github.com/gravitational/teleport/lib/srv/desktop"
+	"github.com/gravitational/teleport/lib/srv/expiry"
 	"github.com/gravitational/teleport/lib/srv/ingress"
 	"github.com/gravitational/teleport/lib/srv/regular"
 	"github.com/gravitational/teleport/lib/srv/transport/transportv1"
@@ -210,9 +211,6 @@ const (
 
 	// DiscoveryIdentityEvent is generated when the identity of the
 	DiscoveryIdentityEvent = "DiscoveryIdentityEvent"
-
-	// ExpiryIdentityEvent is generated when the identity of the
-	ExpiryIdentityEvent = "ExpiryIdentityEvent"
 
 	// AuthTLSReady is generated when the Auth Server has initialized the
 	// TLS Mutual Auth endpoint and is ready to start accepting connections.
@@ -273,10 +271,6 @@ const (
 	// DiscoveryReady is generated when the Teleport discovery service
 	// is ready to start accepting connections.
 	DiscoveryReady = "DiscoveryReady"
-
-	// ExpiryReady is generated when the Teleport expiry service
-	// is ready.
-	ExpiryReady = "ExpiryReady"
 
 	// TeleportExitEvent is generated when the Teleport process begins closing
 	// all listening sockets and exiting.
@@ -1455,10 +1449,6 @@ func NewTeleport(cfg *servicecfg.Config) (*TeleportProcess, error) {
 		}
 		warnOnErr(process.ExitContext(), process.closeImportedDescriptors(teleport.ComponentDiscovery), process.logger)
 	}
-	if process.Config.Auth.Enabled {
-		process.initExpiry()
-		serviceStarted = true
-	}
 
 	if process.enterpriseServicesEnabledWithCommunityBuild() {
 		var services []string
@@ -2444,6 +2434,24 @@ func (process *TeleportProcess) initAuthService() error {
 	process.RegisterFunc("auth.server_info", func() error {
 		return trace.Wrap(auth.ReconcileServerInfos(process.GracefulExitContext(), authServer))
 	})
+
+	expiry, err := expiry.New(process.ExitContext(), &expiry.Config{
+		Log: logger.With(
+			teleport.ComponentKey, teleport.Component(teleport.ComponentAuth, "access_request_expiry"),
+		),
+		Emitter:     authServer,
+		AccessPoint: authServer.Services,
+	})
+	if err != nil {
+		return trace.Wrap(err)
+	}
+	process.RegisterFunc("auth.expiry", func() error {
+		if err := expiry.Start(); err != nil {
+			logger.ErrorContext(process.ExitContext(),"expiry starting","error",err)
+		}
+		return trace.Wrap(err)
+	})
+
 	// execute this when process is asked to exit:
 	process.OnExit("auth.shutdown", func(payload any) {
 		// The listeners have to be closed here, because if shutdown
@@ -2676,21 +2684,6 @@ func (process *TeleportProcess) newLocalCacheForDiscovery(clt authclient.ClientI
 		return nil, trace.Wrap(err)
 	}
 	return authclient.NewDiscoveryWrapper(client, cache), nil
-}
-
-// newLocalCacheForExpiry returns a new instance of access point for a expiry service.
-func (process *TeleportProcess) newLocalCacheForExpiry(clt authclient.ClientI, cacheName []string) (authclient.ExpiryAccessPoint, error) {
-	// if caching is disabled, return access point
-	if !process.Config.CachePolicy.Enabled {
-		return clt, nil
-	}
-
-	cache, err := process.NewLocalCache(clt, cache.ForExpiry, cacheName)
-	if err != nil {
-		return nil, trace.Wrap(err)
-	}
-
-	return authclient.NewExpiryWrapper(clt, cache), nil
 }
 
 // newLocalCacheForProxy returns new instance of access point configured for a local proxy.
@@ -5804,7 +5797,6 @@ func (process *TeleportProcess) registerExpectedServices(cfg *servicecfg.Config)
 
 	if cfg.Auth.Enabled {
 		process.SetExpectedInstanceRole(types.RoleAuth, AuthIdentityEvent)
-		process.SetExpectedInstanceRole(types.RoleExpiry, ExpiryIdentityEvent)
 	}
 
 	if cfg.SSH.Enabled || cfg.OpenSSH.Enabled {
