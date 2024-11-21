@@ -14,31 +14,29 @@
 
 syntax = "proto3";
 
-package teleport.authorization.v1alpha1;
+package teleport.decision.v1alpha1;
 
 import "google/protobuf/duration.proto";
-import "teleport/authorization/v1alpha1/authorize_metadata.proto";
-import "teleport/authorization/v1alpha1/denial_metadata.proto";
-import "teleport/authorization/v1alpha1/permit_metadata.proto";
-import "teleport/authorization/v1alpha1/resource.proto";
-import "teleport/authorization/v1alpha1/subject.proto";
+import "teleport/decision/v1alpha1/permit_metadata.proto";
+import "teleport/decision/v1alpha1/request_metadata.proto";
+import "teleport/decision/v1alpha1/resource.proto";
+import "teleport/decision/v1alpha1/subject.proto";
 
-option go_package = "github.com/gravitational/teleport/api/gen/proto/go/teleport/authorization/v1alpha1;authzpb";
+option go_package = "github.com/gravitational/teleport/api/gen/proto/go/teleport/decision/v1alpha1;decisionv1alpha1";
 
 // Request for SSH access attempts.
 message AuthorizeSSHAccessRequest {
-  Subject subject = 1;
-  Resource resource = 2;
-  AuthorizeMetadata metadata = 3;
-  string login = 4;
-}
+  // Metadata holds common authorization decision request fields.
+  RequestMetadata metadata = 1;
 
-// Response for SSH access attempts.
-message AuthorizeSSHAccessResponse {
-  oneof outcome {
-    SSHAccessPermit permit = 1;
-    SSHAccessDenial denial = 2;
-  }
+  // User references the teleport user requesting access.
+  Subject user = 2;
+
+  // Node references the target node the user is attempting to access.
+  Resource node = 3;
+
+  // Login is the host login associated with the access attempt.
+  string login = 4;
 }
 
 // Permit for a successful SSH access attempt.
@@ -54,9 +52,4 @@ message SSHAccessPermit {
   bool x11_forwarding = 9;
   int64 max_connections = 10;
   // ... (there's a lot more that needs to go here)
-}
-
-// Denial details for an SSH access attempt.
-message SSHAccessDenial {
-  DenialMetadata metadata = 1;
 }
