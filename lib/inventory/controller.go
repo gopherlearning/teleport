@@ -107,7 +107,8 @@ const (
 	handlerStart = "handler-start"
 	handlerClose = "handler-close"
 
-	keepAliveTick = "keep-alive-tick"
+	keepAliveTick    = "keep-alive-tick"
+	keepAliveSSHTick = "keep-alive-ssh-tick"
 )
 
 // instanceHBStepSize is the step size used for the variable instance hearbteat duration. This value is
@@ -326,10 +327,12 @@ func (c *Controller) handleControlStream(handle *upstreamHandle) {
 	})
 	defer instanceHeartbeatTicker.Stop()
 
-	// serverKeepAliveTicker is lazily initialized upon receipt of the first
-	// heartbeat since not all servers send heartbeats
+	// these tickers are lazily initialized upon receipt of the first heartbeat
+	// since not all servers send all heartbeats
 	var serverKeepAliveTicker *jitteredticker.JitteredTicker
+	var sshKeepAliveTicker *jitteredticker.JitteredTicker
 	defer func() {
+		sshKeepAliveTicker.Stop()
 		serverKeepAliveTicker.Stop()
 	}()
 
@@ -408,9 +411,16 @@ func (c *Controller) handleControlStream(handle *upstreamHandle) {
 					return
 				}
 
-				if serverKeepAliveTicker == nil {
+				if serverKeepAliveTicker == nil && (m.AppServer != nil || m.DatabaseServer != nil || m.KubernetesServer != nil) {
 					// this is the first heartbeat, so we need to initialize the ticker
 					serverKeepAliveTicker = jitteredticker.New(jitteredticker.Params{
+						FirstInterval: retryutils.HalfJitter(c.serverKeepAlive),
+						FixedInterval: c.serverKeepAlive,
+						Jitter:        retryutils.SeventhJitter,
+					})
+				}
+				if sshKeepAliveTicker == nil && m.SSHServer != nil {
+					sshKeepAliveTicker = jitteredticker.New(jitteredticker.Params{
 						FirstInterval: retryutils.HalfJitter(c.serverKeepAlive),
 						FixedInterval: c.serverKeepAlive,
 						Jitter:        retryutils.SeventhJitter,
@@ -440,6 +450,16 @@ func (c *Controller) handleControlStream(handle *upstreamHandle) {
 				handle.CloseWithError(err)
 				return
 			}
+
+		case now := <-sshKeepAliveTicker.Next():
+			sshKeepAliveTicker.Advance(now)
+
+			if err := c.keepAliveSSHServer(handle, now); err != nil {
+				handle.CloseWithError(err)
+				c.testEvent(keepAliveSSHTick)
+				return
+			}
+			c.testEvent(keepAliveSSHTick)
 
 		case req := <-handle.pingC:
 			// pings require multiplexing, so we need to do the sending from this
