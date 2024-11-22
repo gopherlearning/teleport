@@ -289,9 +289,13 @@ EOF
         echo "  proxy_listener_mode: ${PROXY_MULTIPLEXING}" >> ${USE_CONFIG_PATH}
     fi
 
-    # enable/start token services and timers
-    systemctl_wrap enable teleport-ssm-publish-tokens.service teleport-ssm-publish-tokens.timer
-    systemctl_wrap start teleport-ssm-publish-tokens.timer
+    # enable/start CA pin hash publishing service and timer
+    systemctl_wrap enable teleport-ssm-publish-ca-pin-hash.service teleport-ssm-publish-ca-pin-hash.timer
+    systemctl_wrap start teleport-ssm-publish-ca-pin-hash.timer
+
+    # enable/start IAM-based token service (runs after auth starts via systemd dependency)
+    systemctl_wrap enable teleport-generate-iam-tokens.service
+    systemctl_wrap start teleport-generate-iam-tokens.service
 
     # enable/start cert services and timers
     systemctl_wrap enable teleport-get-cert.service teleport-get-cert.timer
@@ -316,7 +320,9 @@ elif [[ "${TELEPORT_ROLE}" == "proxy" ]]; then
     cat >${USE_CONFIG_PATH} <<EOF
 version: v3
 teleport:
-  auth_token: /var/lib/teleport/token
+  join_params:
+    method: iam
+    token_name: teleport-iam-token-proxy
   ca_pin: CA_PIN_HASH_PLACEHOLDER
   nodename: ${LOCAL_HOSTNAME}
   advertise_ip: ${LOCAL_IP}
@@ -404,7 +410,9 @@ elif [[ "${TELEPORT_ROLE}" == "node" ]]; then
     cat >${USE_CONFIG_PATH} <<EOF
 version: v3
 teleport:
-  auth_token: /var/lib/teleport/token
+  join_params:
+    method: iam
+    token_name: teleport-iam-token-node
   ca_pin: CA_PIN_HASH_PLACEHOLDER
   nodename: ${LOCAL_HOSTNAME}
   advertise_ip: ${LOCAL_IP}

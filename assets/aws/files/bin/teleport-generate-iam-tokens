@@ -1,0 +1,38 @@
+#!/bin/bash
+#
+# This script runs on the Teleport auth server and adds an IAM join token to the Teleport backend to enable
+# proxies and other resources running in the same AWS account to join the cluster without an alphanumeric token.
+
+set -e
+set -o pipefail
+
+# Source variables from user-data
+. /etc/teleport.d/conf
+
+TCTL=/usr/local/bin/tctl
+# Get AWS account ID for the account where the auth service is running
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+# Store tokens in a temporary directory
+TMP=$(mktemp -d)
+
+# Create an IAM join token for each type in the list
+for TOKEN_TYPE in Proxy Node Kube App Db; do
+    LOWERCASE_TOKEN_TYPE=$(echo ${TOKEN_TYPE} | tr '[:upper:]' '[:lower:]')
+
+    cat <<EOF > ${TMP}/teleport-iam-token-${LOWERCASE_TOKEN_TYPE}.yaml
+kind: token
+version: v2
+metadata:
+    name: teleport-iam-token-${LOWERCASE_TOKEN_TYPE}
+spec:
+    roles: [${TOKEN_TYPE}]
+    join_method: iam
+    allow:
+    - aws_account: "${AWS_ACCOUNT_ID}"
+EOF
+    ${TCTL} create -f ${TMP}/teleport-iam-token-${LOWERCASE_TOKEN_TYPE}.yaml
+done
+
+# Export CA pin hash to SSM parameter store
+CA_PIN_HASH=$(${TCTL} status | grep "CA pin" | awk '{print $3}')
+aws ssm put-parameter --name /teleport/${TELEPORT_CLUSTER_NAME}/ca-pin-hash --region ${EC2_REGION} --type="String" --value="${CA_PIN_HASH}" --overwrite

@@ -1,18 +1,11 @@
 #!/bin/bash
 
-# This is a service that fetches SSM token from parameter store
-# Note that in this scenario token is written to the file.
-# Script does not attempt to fetch token during boot, because the tokens are published after
-# Auth servers are started.
-
+# This service fetches the CA pin hash from SSM parameter store
 set -e
 set -o pipefail
 
 # Source variables from user-data
 . /etc/teleport.d/conf
-
-# Fetch token published by Auth server to SSM parameter store to join the cluster
-aws ssm get-parameter --with-decryption --name /teleport/${TELEPORT_CLUSTER_NAME}/tokens/${TELEPORT_ROLE} --region ${EC2_REGION} --query Parameter.Value --output text > /var/lib/teleport/token
 
 # Fetch Auth server CA pin hash to validate the identity of the auth server
 # Store any old value for the CA pin hash, then compare the new one to see if we need to update the Teleport config file

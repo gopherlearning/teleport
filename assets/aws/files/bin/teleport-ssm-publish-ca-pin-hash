@@ -1,0 +1,16 @@
+#!/bin/bash
+#
+# This script runs on the Teleport auth server and publishes the CA pin hash
+# to SSM parameter store, so proxies and nodes can join the cluster.
+# Note: all resources now join the cluster via IAM rather than static tokens.
+# See teleport-generate-iam-tokens.service and /usr/local/bin/teleport-generate-iam-tokens
+
+set -e
+set -o pipefail
+
+# Source variables from user-data
+. /etc/teleport.d/conf
+
+# Export CA pin hash to SSM parameter store
+CA_PIN_HASH=$(tctl status | grep "CA pin" | awk '{print $3}')
+aws ssm put-parameter --name /teleport/${TELEPORT_CLUSTER_NAME}/ca-pin-hash --region ${EC2_REGION} --type="String" --value="${CA_PIN_HASH}" --overwrite
