@@ -21,6 +21,7 @@ package ui
 import (
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gravitational/trace"
 
@@ -60,6 +61,39 @@ func (r *IntegrationAWSOIDCSpec) CheckAndSetDefaults() error {
 	}
 
 	return nil
+}
+
+// IntegrationWithSummary describes Integration fields and the fields required to return the summary.
+type IntegrationWithSummary struct {
+	*Integration
+	// AWSEC2 contains the summary for the AWS EC2 resources for this integration.
+	AWSEC2 ResourceTypeSummary
+	// AWSRDS contains the summary for the AWS RDS resources and agents for this integration.
+	AWSRDS ResourceTypeSummary
+	// AWSEKS contains the summary for the AWS EKS resources for this integration.
+	AWSEKS ResourceTypeSummary
+}
+
+// ResourceTypeSummary contains the summary of the enrollment rules and found resources by the integration.
+type ResourceTypeSummary struct {
+	// RulesCount is the number of enrollment rules that are using this integration.
+	// A rule is a matcher in a DiscoveryConfig that is being processed by a DiscoveryService.
+	// If the DiscoveryService is not reporting any Status, it means it is not being processed and it doesn't count for the number of rules.
+	// Example 1: a DiscoveryConfig with a matcher whose Type is "EC2" for two regions count as two EC2 rules.
+	// Example 2: a DiscoveryConfig with a matcher whose Types is "EC2,RDS" for one regions count as one EC2 rule.
+	// Example 3: a DiscoveryConfig with a matcher whose Types is "EC2,RDS", but has no DiscoveryService using it, it counts as 0 rules.
+	RulesCount int
+	// ResourcesFound contains the count of resources found by this integration.
+	ResourcesFound int
+	// ResourcesEnrollmentFailed contains the count of resources that failed to enroll into the cluster.
+	ResourcesEnrollmentFailed int
+	// ResourcesEnrollmentSuccess contains the count of resources that succeeded to enroll into the cluster.
+	ResourcesEnrollmentSuccess int
+	// DiscoverLastSync contains the time when this integration tried to auto-enroll resources.
+	DiscoverLastSync time.Time
+	// ECSDatabaseServiceCount is the total number of DatabaseServices that were deployed into Amazon ECS.
+	// Only applicable for AWS RDS resource summary.
+	ECSDatabaseServiceCount int
 }
 
 // Integration describes Integration fields
