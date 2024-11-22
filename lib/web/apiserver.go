@@ -1554,7 +1554,7 @@ func (h *Handler) ping(w http.ResponseWriter, r *http.Request, p httprouter.Para
 		MinClientVersion:  teleport.MinClientVersion,
 		ClusterName:       h.auth.clusterName,
 		AutomaticUpgrades: pr.ServerFeatures.GetAutomaticUpgrades(),
-		AutoUpdate:        h.automaticUpdateSettings184(r.Context(), group, ""),
+		AutoUpdate:        h.automaticUpdateSettings184(r.Context(), group, "" /* updater UUID */),
 		Edition:           modules.GetModules().BuildType(),
 		FIPS:              modules.IsBoringBinary(),
 	}, nil
@@ -1586,13 +1586,12 @@ func (h *Handler) find(w http.ResponseWriter, r *http.Request, p httprouter.Para
 			ClusterName:      h.auth.clusterName,
 			Edition:          modules.GetModules().BuildType(),
 			FIPS:             modules.IsBoringBinary(),
-			AutoUpdate:       h.automaticUpdateSettings184(ctx, group, ""),
+			AutoUpdate:       h.automaticUpdateSettings184(ctx, group, "" /* updater UUID */),
 		}, nil
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)
 	}
-	// TODO: modulate the default setting if we have group
 	return resp, nil
 }
 

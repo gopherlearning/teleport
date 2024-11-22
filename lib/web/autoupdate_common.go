@@ -1,6 +1,6 @@
 /*
  * Teleport
- * Copyright (C) 2023  Gravitational, Inc.
+ * Copyright (C) 2024  Gravitational, Inc.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
@@ -182,7 +182,7 @@ func getVersionFromChannel(ctx context.Context, channels automaticupgrades.Chann
 
 // getTriggerFromWindowThenChannel gets the target version from the RFD109 maintenance window and channels.
 func (h *Handler) getTriggerFromWindowThenChannel(ctx context.Context, groupName string) (bool, error) {
-	// TODO: cache this per group
+	// TODO: cache the CMC
 	cmc, err := h.auth.proxyClient.GetClusterMaintenanceConfig(ctx)
 	if err == nil {
 		if cmc.WithinUpgradeWindow(h.clock.Now()) {
