@@ -47,6 +47,10 @@ import (
 	"github.com/gravitational/teleport/api/utils/keys"
 )
 
+const (
+	AgentUpdateGroupParameter = "group"
+)
+
 // Config specifies information when building requests with the
 // webclient.
 type Config struct {
@@ -179,7 +183,7 @@ func Find(cfg *Config) (*PingResponse, error) {
 	}
 	if cfg.UpdateGroup != "" {
 		endpoint.RawQuery = url.Values{
-			"group": []string{cfg.UpdateGroup},
+			AgentUpdateGroupParameter: []string{cfg.UpdateGroup},
 		}.Encode()
 	}
 
@@ -224,7 +228,7 @@ func Ping(cfg *Config) (*PingResponse, error) {
 	}
 	if cfg.UpdateGroup != "" {
 		endpoint.RawQuery = url.Values{
-			"group": []string{cfg.UpdateGroup},
+			AgentUpdateGroupParameter: []string{cfg.UpdateGroup},
 		}.Encode()
 	}
 	if cfg.ConnectorName != "" {
