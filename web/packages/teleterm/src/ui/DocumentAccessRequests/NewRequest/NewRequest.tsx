@@ -16,19 +16,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import styled from 'styled-components';
-import { Alert, Box, Link } from 'design';
-
 import { ShowResources } from 'gen-proto-ts/teleport/lib/teleterm/v1/cluster_pb';
+import styled from 'styled-components';
+
+import { Alert, Box, Link } from 'design';
 import {
   ResourceList,
   ResourceMap,
 } from 'shared/components/AccessRequests/NewRequest';
 
-import { PendingAccessRequest } from 'teleterm/ui/services/workspacesService/accessRequestsService';
-
-import { useWorkspaceContext } from 'teleterm/ui/Documents';
 import { useAppContext } from 'teleterm/ui/appContextProvider';
+import { useWorkspaceContext } from 'teleterm/ui/Documents';
+import { PendingAccessRequest } from 'teleterm/ui/services/workspacesService/accessRequestsService';
 
 /**
  * Only allows requesting roles (resources can be requested through the unified

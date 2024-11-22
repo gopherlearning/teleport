@@ -16,12 +16,13 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import { ConfirmHardwareKeySlotOverwriteRequest } from 'gen-proto-ts/teleport/lib/teleterm/v1/tshd_events_service_pb';
+
+import { ButtonPrimary, ButtonSecondary, Flex, P2 } from 'design';
 import DialogConfirmation, {
   DialogContent,
   DialogFooter,
 } from 'design/DialogConfirmation';
-import { ButtonPrimary, ButtonSecondary, Flex, P2 } from 'design';
-import { ConfirmHardwareKeySlotOverwriteRequest } from 'gen-proto-ts/teleport/lib/teleterm/v1/tshd_events_service_pb';
 
 import { CommonHeader } from './CommonHeader';
 

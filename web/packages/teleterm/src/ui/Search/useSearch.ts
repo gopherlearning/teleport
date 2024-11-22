@@ -16,25 +16,24 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+import { ShowResources } from 'gen-proto-ts/teleport/lib/teleterm/v1/cluster_pb';
 import { useCallback } from 'react';
 
-import { ShowResources } from 'gen-proto-ts/teleport/lib/teleterm/v1/cluster_pb';
-
-import { assertUnreachable } from 'teleterm/ui/utils';
 import { useAppContext } from 'teleterm/ui/appContextProvider';
+import { assertUnreachable } from 'teleterm/ui/utils';
 
 import {
-  isResourceTypeSearchFilter,
+  FilterSearchResult,
   isClusterSearchFilter,
-  SearchFilter,
+  isResourceTypeSearchFilter,
   LabelMatch,
   mainResourceField,
   mainResourceName,
   ResourceMatch,
-  searchableFields,
   ResourceSearchResult,
-  FilterSearchResult,
   ResourceTypeFilter,
+  searchableFields,
+  SearchFilter,
 } from './searchResult';
 
 import type * as resourcesServiceTypes from 'teleterm/ui/services/resources';

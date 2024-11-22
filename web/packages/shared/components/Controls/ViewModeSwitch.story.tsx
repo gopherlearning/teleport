@@ -16,10 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-import React, { useState } from 'react';
-import { Flex } from 'design';
-
 import { ViewMode } from 'gen-proto-ts/teleport/userpreferences/v1/unified_resource_preferences_pb';
+import React, { useState } from 'react';
+
+import { Flex } from 'design';
 
 import { ViewModeSwitch } from './ViewModeSwitch';
 
