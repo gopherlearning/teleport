@@ -36,6 +36,7 @@ import (
 	"github.com/gravitational/teleport/api/client/proto"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/header"
+	"github.com/gravitational/teleport/api/types/trait"
 	"github.com/gravitational/teleport/api/types/userloginstate"
 	"github.com/gravitational/teleport/lib/defaults"
 	"github.com/gravitational/teleport/lib/fixtures"
@@ -2074,7 +2075,7 @@ func TestAutoRequest(t *testing.T) {
 		{
 			name: "no roles",
 			assertion: func(t *testing.T, validator *RequestValidator) {
-				require.False(t, validator.requireReason)
+				require.False(t, validator.requireReasonForAllRoles)
 				require.False(t, validator.autoRequest)
 				require.Empty(t, validator.prompt)
 			},
@@ -2083,7 +2084,7 @@ func TestAutoRequest(t *testing.T) {
 			name:  "with prompt",
 			roles: []types.Role{empty, optionalRole, promptRole},
 			assertion: func(t *testing.T, validator *RequestValidator) {
-				require.False(t, validator.requireReason)
+				require.False(t, validator.requireReasonForAllRoles)
 				require.False(t, validator.autoRequest)
 				require.Equal(t, "test prompt", validator.prompt)
 			},
@@ -2092,7 +2093,7 @@ func TestAutoRequest(t *testing.T) {
 			name:  "with auto request",
 			roles: []types.Role{alwaysRole},
 			assertion: func(t *testing.T, validator *RequestValidator) {
-				require.False(t, validator.requireReason)
+				require.False(t, validator.requireReasonForAllRoles)
 				require.True(t, validator.autoRequest)
 				require.Empty(t, validator.prompt)
 			},
@@ -2101,7 +2102,7 @@ func TestAutoRequest(t *testing.T) {
 			name:  "with prompt and auto request",
 			roles: []types.Role{promptRole, alwaysRole},
 			assertion: func(t *testing.T, validator *RequestValidator) {
-				require.False(t, validator.requireReason)
+				require.False(t, validator.requireReasonForAllRoles)
 				require.True(t, validator.autoRequest)
 				require.Equal(t, "test prompt", validator.prompt)
 			},
@@ -2110,7 +2111,7 @@ func TestAutoRequest(t *testing.T) {
 			name:  "with reason and auto prompt",
 			roles: []types.Role{reasonRole},
 			assertion: func(t *testing.T, validator *RequestValidator) {
-				require.True(t, validator.requireReason)
+				require.True(t, validator.requireReasonForAllRoles)
 				require.True(t, validator.autoRequest)
 				require.Empty(t, validator.prompt)
 			},
@@ -2140,6 +2141,274 @@ func TestAutoRequest(t *testing.T) {
 		test.assertion(t, &validator)
 	}
 
+}
+
+func TestReasonRequired(t *testing.T) {
+	t.Parallel()
+
+	clusterName := "my-test-cluster"
+
+	g := &mockGetter{
+		roles:       make(map[string]types.Role),
+		userStates:  make(map[string]*userloginstate.UserLoginState),
+		users:       make(map[string]types.User),
+		nodes:       make(map[string]types.Server),
+		kubeServers: make(map[string]types.KubeServer),
+		dbServers:   make(map[string]types.DatabaseServer),
+		appServers:  make(map[string]types.AppServer),
+		desktops:    make(map[string]types.WindowsDesktop),
+		clusterName: clusterName,
+	}
+
+	nodeDesc := []struct {
+		name   string
+		labels map[string]string
+	}{
+		{
+			name: "fork-node",
+			labels: map[string]string{
+				"cutlery": "fork",
+			},
+		},
+		{
+			name: "spoon-node",
+			labels: map[string]string{
+				"cutlery": "spoon",
+			},
+		},
+	}
+	for _, desc := range nodeDesc {
+		node, err := types.NewServerWithLabels(desc.name, types.KindNode, types.ServerSpecV2{}, desc.labels)
+		require.NoError(t, err)
+		g.nodes[desc.name] = node
+	}
+
+	roleDesc := map[string]types.RoleSpecV6{
+		"cutlery-access": {
+			Allow: types.RoleConditions{
+				NodeLabels: types.Labels{
+					"cutlery": []string{types.Wildcard},
+				},
+			},
+		},
+		"fork-access": {
+			Allow: types.RoleConditions{
+				NodeLabels: types.Labels{
+					"cutlery": []string{"fork"},
+				},
+			},
+		},
+
+		"cutlery-access-requester": {
+			Allow: types.RoleConditions{
+				Request: &types.AccessRequestConditions{
+					Roles: []string{"cutlery-access"},
+					// "optional" is the default
+					// Reason: &types.AccessRequestConditionsReason{
+					// 	Mode: "optional",
+					// },
+				},
+			},
+		},
+		"cutlery-node-requester": {
+			Allow: types.RoleConditions{
+				Request: &types.AccessRequestConditions{
+					SearchAsRoles: []string{"cutlery-access"},
+					// set "optional" explicitly
+					Reason: &types.AccessRequestConditionsReason{
+						Mode: "optional",
+					},
+				},
+			},
+		},
+
+		"fork-node-requester": {
+			Allow: types.RoleConditions{
+				Request: &types.AccessRequestConditions{
+					SearchAsRoles: []string{"fork-access"},
+					// everything not-"required" is basically "optional"
+					Reason: &types.AccessRequestConditionsReason{
+						Mode: "not-recognized-is-optional",
+					},
+				},
+			},
+		},
+		"fork-node-requester-with-reason": {
+			Allow: types.RoleConditions{
+				Request: &types.AccessRequestConditions{
+					SearchAsRoles: []string{"fork-access"},
+					Reason: &types.AccessRequestConditionsReason{
+						Mode: "required",
+					},
+				},
+			},
+		},
+		"fork-access-requester": {
+			Allow: types.RoleConditions{
+				Request: &types.AccessRequestConditions{
+					Roles: []string{"fork-access"},
+				},
+			},
+		},
+		"fork-access-requester-with-reason": {
+			Allow: types.RoleConditions{
+				Request: &types.AccessRequestConditions{
+					Roles: []string{"fork-access"},
+					Reason: &types.AccessRequestConditionsReason{
+						Mode: "required",
+					},
+				},
+			},
+		},
+	}
+	for name, spec := range roleDesc {
+		role, err := types.NewRole(name, spec)
+		require.NoError(t, err)
+		g.roles[name] = role
+	}
+
+	testCases := []struct {
+		name               string
+		currentRoles       []string
+		requestRoles       []string
+		requestResourceIDs []types.ResourceID
+		expectError        error
+	}{
+		{
+			name:         "role request: require reason when role has reason.required",
+			currentRoles: []string{"fork-access-requester-with-reason"},
+			requestRoles: []string{"fork-access"},
+			expectError:  trace.BadParameter(`request reason must be specified (required for role "fork-access")`),
+		},
+		{
+			name:         "resource request: require reason when role has reason.required",
+			currentRoles: []string{"fork-node-requester-with-reason"},
+			requestResourceIDs: []types.ResourceID{
+				{ClusterName: clusterName, Kind: types.KindNode, Name: "fork-node"},
+			},
+			expectError: trace.BadParameter(`request reason must be specified (required for role "fork-access")`),
+		},
+		{
+			name:         "role request: do not require reason when role does not have reason.required",
+			currentRoles: []string{"fork-access-requester"},
+			requestRoles: []string{"fork-access"},
+			expectError:  nil,
+		},
+		{
+			name:         "resource request: do not require reason when role does not have reason.required",
+			currentRoles: []string{"fork-node-requester"},
+			requestResourceIDs: []types.ResourceID{
+				{ClusterName: clusterName, Kind: types.KindNode, Name: "fork-node"},
+			},
+			expectError: nil,
+		},
+		{
+			name:         "resource request: but require reason when another role allowing _role_ access requires reason for the role",
+			currentRoles: []string{"fork-node-requester", "fork-access-requester-with-reason"},
+			requestResourceIDs: []types.ResourceID{
+				{ClusterName: clusterName, Kind: types.KindNode, Name: "fork-node"},
+			},
+			expectError: trace.BadParameter(`request reason must be specified (required for role "fork-access")`),
+		},
+		{
+			name:         "role request: require reason when _any_ role has reason.required",
+			currentRoles: []string{"fork-access-requester", "fork-access-requester-with-reason", "cutlery-access-requester"},
+			requestRoles: []string{"fork-access"},
+			expectError:  trace.BadParameter(`request reason must be specified (required for role "fork-access")`),
+		},
+		{
+			name:         "resource request: require reason when _any_ role has reason.required",
+			currentRoles: []string{"fork-node-requester", "fork-node-requester-with-reason", "cutlery-node-requester"},
+			requestResourceIDs: []types.ResourceID{
+				{ClusterName: clusterName, Kind: types.KindNode, Name: "fork-node"},
+			},
+			expectError: trace.BadParameter(`request reason must be specified (required for role "fork-access")`),
+		},
+		{
+			name:         "role request: do not require reason when all roles don't have reason.required",
+			currentRoles: []string{"fork-access-requester", "cutlery-access-requester"},
+			requestRoles: []string{"fork-access"},
+			expectError:  nil,
+		},
+		{
+			name:         "resource request: do not require reason when all roles don't have reason.required",
+			currentRoles: []string{"fork-node-requester", "cutlery-node-requester"},
+			requestResourceIDs: []types.ResourceID{
+				{ClusterName: clusterName, Kind: types.KindNode, Name: "fork-node"},
+			},
+			expectError: nil,
+		},
+		{
+			name:         "role request: require reason when _any_ role with reason.required matches _any_ roles",
+			currentRoles: []string{"fork-access-requester-with-reason", "cutlery-access-requester"},
+			requestRoles: []string{"fork-access", "cutlery-access"},
+			expectError:  trace.BadParameter(`request reason must be specified (required for role "fork-access")`),
+		},
+		{
+			name:         "resource request: require reason when _any_ role with reason.required matches _any_ resource",
+			currentRoles: []string{"fork-node-requester-with-reason", "cutlery-node-requester"},
+			requestResourceIDs: []types.ResourceID{
+				{ClusterName: clusterName, Kind: types.KindNode, Name: "fork-node"},
+				{ClusterName: clusterName, Kind: types.KindNode, Name: "spoon-node"},
+			},
+			expectError: trace.BadParameter(`request reason must be specified (required for role "fork-access")`),
+		},
+		{
+			name:         "role request: do not require reason when _all_ roles do not require reason for _all_ roles",
+			currentRoles: []string{"fork-access-requester", "cutlery-access-requester"},
+			requestRoles: []string{"fork-access", "cutlery-access"},
+			expectError:  nil,
+		},
+		{
+			name:         "resource request: do not require reason when _all_ roles do not require reason for _all_ resources",
+			currentRoles: []string{"fork-node-requester", "cutlery-node-requester"},
+			requestResourceIDs: []types.ResourceID{
+				{ClusterName: clusterName, Kind: types.KindNode, Name: "fork-node"},
+				{ClusterName: clusterName, Kind: types.KindNode, Name: "spoon-node"},
+			},
+			expectError: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			uls, err := userloginstate.New(header.Metadata{
+				Name: "test-user",
+			}, userloginstate.Spec{
+				Roles: tc.currentRoles,
+				Traits: trait.Traits{
+					"logins": []string{"abcd"},
+				},
+			})
+			require.NoError(t, err)
+			g.userStates[uls.GetName()] = uls
+
+			req, err := types.NewAccessRequestWithResources(
+				"some-id", uls.GetName(), tc.requestRoles, tc.requestResourceIDs)
+			require.NoError(t, err)
+
+			clock := clockwork.NewFakeClock()
+			identity := tlsca.Identity{
+				Expires: clock.Now().UTC().Add(8 * time.Hour),
+			}
+
+			validator, err := NewRequestValidator(context.Background(), clock, g, uls.GetName(), ExpandVars(true))
+			require.NoError(t, err)
+
+			required, explanation, err := validator.isReasonRequired(context.Background(), tc.requestRoles, tc.requestResourceIDs)
+			require.NoError(t, err)
+			if tc.expectError != nil {
+				require.True(t, required)
+				require.Equal(t, tc.expectError.Error(), explanation)
+			} else {
+				require.False(t, required)
+				require.Empty(t, explanation)
+			}
+
+			err = validator.Validate(context.Background(), req, identity)
+			require.ErrorIs(t, err, tc.expectError)
+		})
+	}
 }
 
 type mockClusterGetter struct {
