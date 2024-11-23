@@ -236,11 +236,12 @@ func newUpdater(ccfg *cliConfig) (*autoupdate.Updater, error) {
 func cmdDisable(ctx context.Context, ccfg *cliConfig) error {
 	updater, err := newUpdater(ccfg)
 	if err != nil {
-		return trace.Errorf("failed to initialize updater: %w", err)
+		return trace.Wrap(err, "failed to initialize updater")
 	}
-	unlock, err := libutils.FSWriteLock(filepath.Join(ccfg.DataDir, lockFileName))
+	lockPath := filepath.Join(ccfg.DataDir, lockFileName)
+	unlock, err := libutils.FSWriteLock(lockPath)
 	if err != nil {
-		return trace.Errorf("failed to grab concurrent execution lock: %w", err)
+		return trace.Wrap(err, "failed to grab concurrent execution lock %q", lockPath)
 	}
 	defer func() {
 		if err := unlock(); err != nil {
@@ -257,11 +258,12 @@ func cmdDisable(ctx context.Context, ccfg *cliConfig) error {
 func cmdUnpin(ctx context.Context, ccfg *cliConfig) error {
 	updater, err := newUpdater(ccfg)
 	if err != nil {
-		return trace.Errorf("failed to setup updater: %w", err)
+		return trace.Wrap(err, "failed to setup updater")
 	}
-	unlock, err := libutils.FSWriteLock(filepath.Join(ccfg.DataDir, lockFileName))
+	lockPath := filepath.Join(ccfg.DataDir, lockFileName)
+	unlock, err := libutils.FSWriteLock(lockPath)
 	if err != nil {
-		return trace.Errorf("failed to grab concurrent execution lock: %w", err)
+		return trace.Wrap(err, "failed to grab concurrent execution lock %q", lockPath)
 	}
 	defer func() {
 		if err := unlock(); err != nil {
@@ -291,13 +293,14 @@ func cmdInstall(ctx context.Context, ccfg *cliConfig) error {
 	}
 	updater, err := newUpdater(ccfg)
 	if err != nil {
-		return trace.Errorf("failed to initialize updater: %w", err)
+		return trace.Wrap(err, "failed to initialize updater")
 	}
 
 	// Ensure enable can't run concurrently.
-	unlock, err := libutils.FSWriteLock(filepath.Join(ccfg.DataDir, lockFileName))
+	lockPath := filepath.Join(ccfg.DataDir, lockFileName)
+	unlock, err := libutils.FSWriteLock(lockPath)
 	if err != nil {
-		return trace.Errorf("failed to grab concurrent execution lock: %w", err)
+		return trace.Wrap(err, "failed to grab concurrent execution lock %q", lockPath)
 	}
 	defer func() {
 		if err := unlock(); err != nil {
@@ -314,12 +317,13 @@ func cmdInstall(ctx context.Context, ccfg *cliConfig) error {
 func cmdUpdate(ctx context.Context, ccfg *cliConfig) error {
 	updater, err := newUpdater(ccfg)
 	if err != nil {
-		return trace.Errorf("failed to initialize updater: %w", err)
+		return trace.Wrap(err, "failed to initialize updater")
 	}
 	// Ensure update can't run concurrently.
-	unlock, err := libutils.FSWriteLock(filepath.Join(ccfg.DataDir, lockFileName))
+	lockPath := filepath.Join(ccfg.DataDir, lockFileName)
+	unlock, err := libutils.FSWriteLock(lockPath)
 	if err != nil {
-		return trace.Errorf("failed to grab concurrent execution lock: %w", err)
+		return trace.Wrap(err, "failed to grab concurrent execution lock %q", lockPath)
 	}
 	defer func() {
 		if err := unlock(); err != nil {
@@ -337,17 +341,18 @@ func cmdUpdate(ctx context.Context, ccfg *cliConfig) error {
 func cmdLinkPackage(ctx context.Context, ccfg *cliConfig) error {
 	updater, err := newUpdater(ccfg)
 	if err != nil {
-		return trace.Errorf("failed to initialize updater: %w", err)
+		return trace.Wrap(err, "failed to initialize updater")
 	}
 
 	// Skip operation and warn if the updater is currently running.
-	unlock, err := libutils.FSTryReadLock(filepath.Join(ccfg.DataDir, lockFileName))
+	lockPath := filepath.Join(ccfg.DataDir, lockFileName)
+	unlock, err := libutils.FSTryReadLock(lockPath)
 	if errors.Is(err, libutils.ErrUnsuccessfulLockTry) {
 		plog.WarnContext(ctx, "Updater is currently running. Skipping package linking.")
 		return nil
 	}
 	if err != nil {
-		return trace.Errorf("failed to grab concurrent execution lock: %w", err)
+		return trace.Wrap(err, "failed to grab concurrent execution lock %q", lockPath)
 	}
 	defer func() {
 		if err := unlock(); err != nil {
@@ -365,16 +370,18 @@ func cmdLinkPackage(ctx context.Context, ccfg *cliConfig) error {
 func cmdUnlinkPackage(ctx context.Context, ccfg *cliConfig) error {
 	updater, err := newUpdater(ccfg)
 	if err != nil {
-		return trace.Errorf("failed to setup updater: %w", err)
+		return trace.Wrap(err, "failed to setup updater")
 	}
 
 	// Error if the updater is running. We could remove its links by accident.
-	unlock, err := libutils.FSTryWriteLock(filepath.Join(ccfg.DataDir, lockFileName))
+	lockPath := filepath.Join(ccfg.DataDir, lockFileName)
+	unlock, err := libutils.FSTryWriteLock(lockPath)
 	if errors.Is(err, libutils.ErrUnsuccessfulLockTry) {
-		return trace.Errorf("updater is currently running")
+		plog.WarnContext(ctx, "Updater is currently running. Skipping package unlinking.")
+		return nil
 	}
 	if err != nil {
-		return trace.Errorf("failed to grab concurrent execution lock: %w", err)
+		return trace.Wrap(err, "failed to grab concurrent execution lock %q", lockPath)
 	}
 	defer func() {
 		if err := unlock(); err != nil {
@@ -400,7 +407,7 @@ func cmdSetup(ctx context.Context, ccfg *cliConfig) error {
 		return trace.Wrap(err)
 	}
 	if err != nil {
-		return trace.Errorf("failed to setup teleport-update service: %w", err)
+		return trace.Wrap(err, "failed to setup teleport-update service")
 	}
 	return nil
 }
@@ -409,11 +416,11 @@ func cmdSetup(ctx context.Context, ccfg *cliConfig) error {
 func cmdStatus(ctx context.Context, ccfg *cliConfig) error {
 	updater, err := newUpdater(ccfg)
 	if err != nil {
-		return trace.Errorf("failed to initialize updater: %w", err)
+		return trace.Wrap(err, "failed to initialize updater")
 	}
 	status, err := updater.Status(ctx)
 	if err != nil {
-		return trace.Errorf("failed to get status: %w", err)
+		return trace.Wrap(err, "failed to get status")
 	}
 	enc := yaml.NewEncoder(os.Stdout)
 	return trace.Wrap(enc.Encode(status))
@@ -423,12 +430,13 @@ func cmdStatus(ctx context.Context, ccfg *cliConfig) error {
 func cmdUninstall(ctx context.Context, ccfg *cliConfig) error {
 	updater, err := newUpdater(ccfg)
 	if err != nil {
-		return trace.Errorf("failed to initialize updater: %w", err)
+		return trace.Wrap(err, "failed to initialize updater")
 	}
 	// Ensure update can't run concurrently.
-	unlock, err := libutils.FSWriteLock(filepath.Join(ccfg.DataDir, lockFileName))
+	lockPath := filepath.Join(ccfg.DataDir, lockFileName)
+	unlock, err := libutils.FSWriteLock(lockPath)
 	if err != nil {
-		return trace.Errorf("failed to grab concurrent execution lock: %w", err)
+		return trace.Wrap(err, "failed to grab concurrent execution lock %q", lockPath)
 	}
 	defer func() {
 		if err := unlock(); err != nil {
