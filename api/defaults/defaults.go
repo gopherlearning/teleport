@@ -34,10 +34,6 @@ const (
 	// DefaultIdleTimeout is a default idle connection timeout.
 	DefaultIdleTimeout = 30 * time.Second
 
-	// DefaultDialTimeout is the default time to wait for a connection to be
-	// established.
-	DefaultDialTimeout = 5 * time.Second
-
 	// KeepAliveCountMax is the number of keep-alive messages that can be sent
 	// without receiving a response from the client before the client is
 	// disconnected. The max count mirrors ClientAliveCountMax of sshd.

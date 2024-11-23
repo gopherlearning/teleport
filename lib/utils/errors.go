@@ -21,7 +21,6 @@ package utils
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -30,7 +29,6 @@ import (
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport/api/constants"
-	"github.com/gravitational/teleport/api/defaults"
 )
 
 // IsUseOfClosedNetworkError returns true if the specified error
@@ -92,7 +90,6 @@ func IsUntrustedCertErr(err error) bool {
 // CanExplainNetworkError returns a simple to understand error message that can
 // be used to debug common network and/or protocol errors.
 func CanExplainNetworkError(err error) (string, bool) {
-	var oerr *net.OpError
 	var derr *net.DNSError
 
 	switch {
@@ -124,23 +121,13 @@ func CanExplainNetworkError(err error) (string, bool) {
 		return "Connection reset by peer. Run \"curl -v a.b.c.d\" on the Teleport " +
 			"agent to verify the target application (or a load balancer in the " +
 			"network path) is not abruptly closing the connection after accepting it.", true
-	// I/O timeouts can be reproduced by creating a server with a customer
-	// listener that will time.Sleep after Accept(). The raw error typically
-	// looks like the following:
-	//
-	// dial tcp 127.0.0.1:8000: i/o timeout
-	case errors.As(err, &oerr) && oerr.Timeout():
-		return fmt.Sprintf("Network I/O timeout. Run \"nc -vz a.b.c.d\" on the "+
-			"Teleport agent to verify the target application is accepting network "+
-			"connections in under %v.", defaults.DefaultDialTimeout), true
 	// Slow responses can be reprodued by creating a HTTP server that does a
 	// time.Sleep before responding. The raw error typically looks like the following:
 	//
 	// context deadline exceeded
 	case errors.Is(err, context.DeadlineExceeded):
-		return fmt.Sprintf("Timeout waiting for response. Run \"curl -v a.b.c.d\" on the "+
-			"Teleport agent to verify the target application is responding to "+
-			"requests in under %v.", defaults.DefaultIOTimeout), true
+		return "Timeout waiting for response. Run \"curl -v a.b.c.d\" on the " +
+			"Teleport agent to verify the target application is not under excessive load.", true
 	// No such host errors can be reproduced by attempting to resolve a invalid
 	// domain name. The raw error typically looks like the following:
 	//

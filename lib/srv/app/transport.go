@@ -29,11 +29,11 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/gravitational/trace"
 
 	"github.com/gravitational/teleport"
-	apidefaults "github.com/gravitational/teleport/api/defaults"
 	"github.com/gravitational/teleport/api/types"
 	"github.com/gravitational/teleport/api/types/wrappers"
 	"github.com/gravitational/teleport/lib"
@@ -101,13 +101,6 @@ func newTransport(ctx context.Context, c *transportConfig) (*transport, error) {
 		return nil, trace.Wrap(err)
 	}
 
-	// Add a timeout to the dialer so failures to establish network connections
-	// don't cause requests to hang forever.
-	d := net.Dialer{
-		Timeout: apidefaults.DefaultDialTimeout,
-	}
-	tr.DialContext = d.DialContext
-
 	tr.TLSClientConfig, err = configureTLS(c)
 	if err != nil {
 		return nil, trace.Wrap(err)
@@ -156,7 +149,7 @@ func (t *transport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	// Add a timeout to the request, so slow servers don't cause requests to
 	// hang forever.
-	timeout, cancel := context.WithTimeout(r.Context(), apidefaults.DefaultIOTimeout)
+	timeout, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
 	r = r.WithContext(timeout)
 
@@ -345,3 +338,8 @@ func charWrap(message string) string {
 	}
 	return sb.String()
 }
+
+const (
+	// requestTimeout is the timeout to receive a response from the upstream server.
+	requestTimeout = 30 * time.Second
+)
